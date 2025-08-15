@@ -1,0 +1,186 @@
+# Prometheus Alert Rules for Crypto Data Service
+groups:
+  - name: crypto-data-service.alerts
+    rules:
+      # Event System Alerts
+      - alert: HighEventProcessingLatency
+        expr: histogram_quantile(0.95, event_latency_ms_bucket) > 5000
+        for: 5m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: event-bus
+        annotations:
+          summary: "High event processing latency detected"
+          description: "95th percentile event processing latency is {{ $value }}ms, exceeding 5 second threshold"
+
+      - alert: EventBacklogGrowing
+        expr: increase(events_published_total[5m]) - increase(events_consumed_total[5m]) > 1000
+        for: 3m
+        labels:
+          severity: critical
+          service: crypto-data
+          component: event-bus
+        annotations:
+          summary: "Event processing backlog is growing"
+          description: "Event backlog has grown by {{ $value }} events in the last 5 minutes"
+
+      # Cost Management Alerts
+      - alert: HighAPISpend
+        expr: rate(provider_cost_usd_total[1h]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: cost-monitoring
+        annotations:
+          summary: "High API spend rate detected"
+          description: "Current spend rate is ${{ $value }}/hour, exceeding $10/hour threshold"
+
+      - alert: CacheHitRateLow
+        expr: rate(cache_hits_total[5m]) / (rate(cache_hits_total[5m]) + rate(cache_misses_total[5m])) * 100 < 50
+        for: 10m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: cache
+        annotations:
+          summary: "Cache hit rate is low"
+          description: "Cache hit rate is {{ $value }}%, below 50% threshold"
+
+      - alert: CostBudgetExceeded
+        expr: daily_cost_usd > 200
+        for: 1m
+        labels:
+          severity: critical
+          service: crypto-data
+          component: cost-monitoring
+        annotations:
+          summary: "Daily cost budget exceeded"
+          description: "Daily cost of ${{ $value }} has exceeded the $200 budget"
+
+      # Worker Performance Alerts
+      - alert: WorkerJobDurationHigh
+        expr: histogram_quantile(0.95, worker_job_duration_ms_bucket{name="portfolioWorker"}) > 30000
+        for: 5m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: worker
+        annotations:
+          summary: "Portfolio worker job duration is high"
+          description: "95th percentile job duration is {{ $value }}ms, exceeding 30 second threshold"
+
+      - alert: AsyncRequestFailureRate
+        expr: rate(async_portfolio_requests_total{status="failed"}[5m]) / rate(async_portfolio_requests_total[5m]) * 100 > 10
+        for: 3m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: async-portfolio
+        annotations:
+          summary: "High async request failure rate"
+          description: "{{ $value }}% of async portfolio requests are failing"
+
+      # Provider Health Alerts
+      - alert: ProviderHighErrorRate
+        expr: rate(provider_calls_total{status=~"error|timeout"}[5m]) / rate(provider_calls_total[5m]) * 100 > 20
+        for: 3m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: provider
+        annotations:
+          summary: "High provider error rate"
+          description: "Provider {{ $labels.provider }} on {{ $labels.chain }} has {{ $value }}% error rate"
+
+      - alert: ProviderLatencyHigh
+        expr: histogram_quantile(0.95, provider_request_duration_ms_bucket) > 10000
+        for: 5m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: provider
+        annotations:
+          summary: "High provider request latency"
+          description: "95th percentile provider latency is {{ $value }}ms, exceeding 10 second threshold"
+
+      # System Health Alerts
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100 > 5
+        for: 3m
+        labels:
+          severity: critical
+          service: crypto-data
+          component: api
+        annotations:
+          summary: "High 5xx error rate"
+          description: "{{ $value }}% of requests are returning 5xx errors"
+
+      - alert: HighMemoryUsage
+        expr: (nodejs_heap_size_used_bytes / nodejs_heap_size_total_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: system
+        annotations:
+          summary: "High memory usage"
+          description: "Node.js heap usage is {{ $value }}%, exceeding 90% threshold"
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: crypto-data
+          component: system
+        annotations:
+          summary: "Service is down"
+          description: "Crypto data service instance {{ $labels.instance }} is down"
+
+      # Performance Optimization Alerts
+      - alert: LowBatchingEfficiency
+        expr: rate(batched_requests_total[5m]) / rate(total_requests_total[5m]) * 100 < 30
+        for: 10m
+        labels:
+          severity: info
+          service: crypto-data
+          component: optimization
+        annotations:
+          summary: "Low request batching efficiency"
+          description: "Only {{ $value }}% of requests are being batched, below 30% target"
+
+      - alert: HighDeduplicationRate
+        expr: rate(deduplicated_requests_total[5m]) / rate(total_requests_total[5m]) * 100 > 50
+        for: 5m
+        labels:
+          severity: info
+          service: crypto-data
+          component: optimization
+        annotations:
+          summary: "High request deduplication rate"
+          description: "{{ $value }}% of requests are duplicates, indicating potential inefficient usage patterns"
+
+      # Event-Specific Alerts
+      - alert: DeFiPositionsFetchFailure
+        expr: rate(events_consumed_total{type="DeFiPositionsFetchedV1",status="failed"}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: defi
+        annotations:
+          summary: "DeFi positions fetch failures detected"
+          description: "{{ $value }} DeFi position fetch failures per second"
+
+      - alert: PortfolioComputationStalled
+        expr: increase(events_published_total{type="PortfolioAggregationRequestV1"}[10m]) > increase(events_published_total{type="PortfolioComputedV1"}[10m]) + 100
+        for: 5m
+        labels:
+          severity: warning
+          service: crypto-data
+          component: portfolio
+        annotations:
+          summary: "Portfolio computations may be stalled"
+          description: "{{ $value }} more portfolio requests than completions in last 10 minutes"
