@@ -11,7 +11,7 @@ The Crypto Data Service is a specialized microservice designed to integrate seam
 - **Multi-Chain Support**: EVM chains (Ethereum, Polygon, Arbitrum, Optimism, Base) + Solana
 - **Cost-Optimized**: Intelligent API batching and caching reduces external API costs by 30-50%
 - **DeFi Integration**: Native support for Aave V3, Compound, Uniswap, Curve, and more
-- **Real-time Updates**: WebSocket streaming for price feeds and balance updates
+- **Real-time Updates (optional)**: Designed to support streaming updates when enabled
 - **Production Ready**: Comprehensive monitoring, error handling, and deployment configs
 
 ## 🚀 Quick Start
@@ -97,11 +97,6 @@ docker-compose up crypto-data-service
 GET /api/portfolio/:address?chains=ethereum,polygon
 ```
 
-### Real-time Prices
-```bash
-GET /api/prices/:symbol
-WebSocket /ws/prices
-```
 
 ### DeFi Positions
 ```bash
@@ -141,13 +136,14 @@ async def get_enhanced_portfolio(address: str):
 ```
 src/
 ├── config/          # Environment and app configuration
-├── controllers/     # API route handlers
+├── routes/          # API routes (Express routers)
 ├── services/        # Business logic and external integrations
 ├── middleware/      # Express middleware (auth, logging, etc.)
 ├── models/          # Database models and schemas
 ├── utils/           # Shared utilities (logger, cache, etc.)
 ├── types/           # TypeScript type definitions
-└── server.ts        # Application entry point
+├── app.ts           # Express app configuration
+└── index.ts         # Application bootstrap and lifecycle
 
 tests/
 ├── unit/            # Unit tests

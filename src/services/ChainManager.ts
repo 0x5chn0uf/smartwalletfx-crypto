@@ -1,4 +1,4 @@
-import { config } from '@/config/environment';
+import { config } from '@/config';
 import { logger, logApiCall, logCost } from '@/utils/logger';
 import { redisManager } from '@/utils/redis';
 import {
@@ -12,7 +12,9 @@ import {
   CHAIN_CONFIGS,
 } from '@/types/blockchain';
 import { AlchemyProvider } from './providers/AlchemyProvider';
+import { RpcProvider } from './providers/RpcProvider';
 import { SolanaProvider } from './providers/SolanaProvider';
+import { getPriceService } from '@/services/pricing/PriceService';
 
 interface ChainManagerConfig {
   providers: {
@@ -57,7 +59,10 @@ export class ChainManager {
     ];
 
     for (const { chain, key } of evmChains) {
-      const apiKey = this.managerConfig.providers.alchemy[key as keyof typeof this.managerConfig.providers.alchemy];
+      const apiKey =
+        this.managerConfig.providers.alchemy[
+          key as keyof typeof this.managerConfig.providers.alchemy
+        ];
       if (apiKey) {
         try {
           const provider = new AlchemyProvider(chain, apiKey);
@@ -65,7 +70,9 @@ export class ChainManager {
           this.providerHealth.set(chain, true);
           logger.info(`Initialized Alchemy provider for ${CHAIN_CONFIGS[chain].name}`);
         } catch (error) {
-          logger.error(`Failed to initialize Alchemy provider for ${CHAIN_CONFIGS[chain].name}:`, { error });
+          logger.error(`Failed to initialize Alchemy provider for ${CHAIN_CONFIGS[chain].name}:`, {
+            error,
+          });
         }
       }
     }
@@ -82,19 +89,52 @@ export class ChainManager {
       }
     }
 
+    // Initialize generic RPC providers for additional EVM chains (BSC, Avalanche, Fantom)
+    try {
+      if (config.rpcUrls.bsc) {
+        const bsc = new RpcProvider(ChainId.BSC, config.rpcUrls.bsc, 'BSC RPC');
+        this.providers.set(ChainId.BSC, bsc);
+        this.providerHealth.set(ChainId.BSC, true);
+        logger.info('Initialized RPC provider for BSC');
+      }
+      if (config.rpcUrls.avalanche) {
+        const avax = new RpcProvider(ChainId.AVALANCHE, config.rpcUrls.avalanche, 'Avalanche RPC');
+        this.providers.set(ChainId.AVALANCHE, avax);
+        this.providerHealth.set(ChainId.AVALANCHE, true);
+        logger.info('Initialized RPC provider for Avalanche');
+      }
+      if (config.rpcUrls.fantom) {
+        const ftm = new RpcProvider(
+          ChainId.FANTOM as any,
+          (config.rpcUrls as any).fantom,
+          'Fantom RPC'
+        );
+        this.providers.set(ChainId.FANTOM as any, ftm);
+        this.providerHealth.set(ChainId.FANTOM as any, true);
+        logger.info('Initialized RPC provider for Fantom');
+      }
+    } catch (error) {
+      logger.error('Failed to initialize RPC providers:', { error });
+    }
+
     logger.info(`ChainManager initialized with ${this.providers.size} providers`);
   }
 
   // Initialize all providers
   async initialize(): Promise<void> {
-    const initPromises = Array.from(this.providers.values()).map(async (provider) => {
+    const initPromises = Array.from(this.providers.values()).map(async provider => {
       try {
         await provider.initialize();
         this.providerHealth.set(provider.chainId, true);
-        logger.info(`Provider ${provider.name} for chain ${provider.chainId} initialized successfully`);
+        logger.info(
+          `Provider ${provider.name} for chain ${provider.chainId} initialized successfully`
+        );
       } catch (error) {
         this.providerHealth.set(provider.chainId, false);
-        logger.error(`Provider ${provider.name} for chain ${provider.chainId} failed to initialize:`, { error });
+        logger.error(
+          `Provider ${provider.name} for chain ${provider.chainId} failed to initialize:`,
+          { error }
+        );
       }
     });
 
@@ -102,9 +142,12 @@ export class ChainManager {
     logger.info('ChainManager initialization completed');
   }
 
+  // Track health check interval for cleanup
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+
   // Health checking
   private startHealthChecking(): void {
-    setInterval(async () => {
+    this.healthCheckInterval = setInterval(async () => {
       await this.performHealthChecks();
     }, 60000); // Check every minute
   }
@@ -114,7 +157,7 @@ export class ChainManager {
       try {
         const isHealthy = await provider.healthCheck();
         this.providerHealth.set(chainId, isHealthy);
-        
+
         if (!isHealthy) {
           logger.warn(`Provider ${provider.name} for chain ${chainId} is unhealthy`);
         }
@@ -127,12 +170,16 @@ export class ChainManager {
     await Promise.allSettled(healthPromises);
   }
 
+  // Track cost tracking intervals for cleanup
+  private costResetInterval: NodeJS.Timeout | null = null;
+  private costReportInterval: NodeJS.Timeout | null = null;
+
   // Cost tracking
   private startCostTracking(): void {
     if (!this.managerConfig.costTracking.enabled) return;
 
     // Reset monthly costs at the start of each month
-    setInterval(() => {
+    this.costResetInterval = setInterval(() => {
       const now = new Date();
       if (now.getDate() === 1 && now.getHours() === 0 && now.getMinutes() === 0) {
         this.costTracker.clear();
@@ -142,9 +189,12 @@ export class ChainManager {
     }, 60000); // Check every minute
 
     // Daily cost reporting
-    setInterval(() => {
-      this.reportCostMetrics();
-    }, 24 * 60 * 60 * 1000); // Once per day
+    this.costReportInterval = setInterval(
+      () => {
+        this.reportCostMetrics();
+      },
+      24 * 60 * 60 * 1000
+    ); // Once per day
   }
 
   private trackCost(provider: string, cost: number): void {
@@ -170,7 +220,10 @@ export class ChainManager {
 
   private reportCostMetrics(): void {
     const totalCost = Array.from(this.costTracker.values()).reduce((sum, cost) => sum + cost, 0);
-    const totalRequests = Array.from(this.requestStats.values()).reduce((sum, count) => sum + count, 0);
+    const totalRequests = Array.from(this.requestStats.values()).reduce(
+      (sum, count) => sum + count,
+      0
+    );
 
     logger.info('Daily cost report:', {
       totalCost: totalCost.toFixed(4),
@@ -196,8 +249,8 @@ export class ChainManager {
 
   // Get healthy chains
   getHealthyChains(): ChainId[] {
-    return Array.from(this.providers.keys()).filter((chainId) => 
-      this.providerHealth.get(chainId) === true
+    return Array.from(this.providers.keys()).filter(
+      chainId => this.providerHealth.get(chainId) === true
     );
   }
 
@@ -232,7 +285,7 @@ export class ChainManager {
     const startTime = Date.now();
     try {
       const result = await provider.getBalance(address);
-      
+
       // Track cost
       if (result.metadata.cost) {
         this.trackCost(provider.name, result.metadata.cost);
@@ -272,14 +325,14 @@ export class ChainManager {
 
   // Multi-chain portfolio
   async getMultiChainPortfolio(
-    address: string, 
+    address: string,
     chainIds?: ChainId[]
   ): Promise<ProviderResponse<MultiChainPortfolio>> {
     const startTime = Date.now();
     const targetChains = chainIds || this.getHealthyChains();
-    
+
     const cacheKey = `multi-chain-portfolio:${address}:${targetChains.sort().join(',')}`;
-    
+
     try {
       // Try cache first
       const cached = await redisManager.get<MultiChainPortfolio>(cacheKey);
@@ -298,7 +351,7 @@ export class ChainManager {
       }
 
       // Fetch balances from all chains concurrently
-      const balancePromises = targetChains.map(async (chainId) => {
+      const balancePromises = targetChains.map(async chainId => {
         const result = await this.getBalance(chainId, address);
         return { chainId, result };
       });
@@ -319,22 +372,23 @@ export class ChainManager {
 
           if (result.success && result.data) {
             successfulChains++;
-            
-            // Calculate chain total (would need price data)
-            const chainTotalUSD = 0; // TODO: Implement price calculation
-            
+            // Enrich with USD prices
+            const enriched = await getPriceService().enrichBalances(chainId, result.data);
+            // Calculate chain total in USD (sum non-NaN)
+            const chainTotalUSD = enriched.reduce((sum, t) => sum + (t.balanceUSD || 0), 0);
+
             const chainSummary: PortfolioSummary = {
               address,
               chainId,
               totalValueUSD: chainTotalUSD,
-              tokenCount: result.data.length,
-              tokens: result.data,
-              nativeBalance: result.data.find(t => t.token.isNative),
+              tokenCount: enriched.length,
+              tokens: enriched,
+              nativeBalance: enriched.find(t => t.token.isNative),
               lastUpdated: new Date(),
             };
 
             chains.push(chainSummary);
-            allTokens.push(...result.data);
+            allTokens.push(...enriched);
             totalValueUSD += chainTotalUSD;
           }
         }
@@ -343,10 +397,14 @@ export class ChainManager {
       // Calculate diversification score (simplified)
       const diversificationScore = this.calculateDiversificationScore(allTokens);
 
-      // Get top tokens by balance (would need USD values)
+      // Top tokens by USD value (fallback to balance if no USD)
       const topTokens = allTokens
         .filter(t => !t.token.isNative)
-        .sort((a, b) => parseFloat(b.balanceFormatted) - parseFloat(a.balanceFormatted))
+        .sort(
+          (a, b) =>
+            (b.balanceUSD ?? parseFloat(b.balanceFormatted)) -
+            (a.balanceUSD ?? parseFloat(a.balanceFormatted))
+        )
         .slice(0, 10);
 
       const portfolio: MultiChainPortfolio = {
@@ -364,8 +422,8 @@ export class ChainManager {
         },
       };
 
-      // Cache the result
-      await redisManager.set(cacheKey, portfolio, 300); // 5 minutes
+      // Cache the result using configured TTL
+      await redisManager.set(cacheKey, portfolio, config.cache.ttl.medium);
 
       return {
         success: true,
@@ -415,7 +473,7 @@ export class ChainManager {
     }
 
     const result = await provider.getTransaction(hash);
-    
+
     if (result.metadata.cost) {
       this.trackCost(provider.name, result.metadata.cost);
     }
@@ -431,7 +489,7 @@ export class ChainManager {
     // In a real implementation, this would consider USD values
     const uniqueSymbols = new Set(tokens.map(t => t.token.symbol));
     const symbolCount = uniqueSymbols.size;
-    
+
     // Score based on number of unique tokens (0-100)
     return Math.min((symbolCount / 10) * 100, 100);
   }
@@ -439,7 +497,10 @@ export class ChainManager {
   // Get cost statistics
   getCostStatistics() {
     const totalCost = Array.from(this.costTracker.values()).reduce((sum, cost) => sum + cost, 0);
-    const totalRequests = Array.from(this.requestStats.values()).reduce((sum, count) => sum + count, 0);
+    const totalRequests = Array.from(this.requestStats.values()).reduce(
+      (sum, count) => sum + count,
+      0
+    );
 
     return {
       totalCost,
@@ -452,7 +513,9 @@ export class ChainManager {
           {
             cost,
             requests: this.requestStats.get(provider) || 0,
-            averageCost: this.requestStats.get(provider) ? cost / this.requestStats.get(provider)! : 0,
+            averageCost: this.requestStats.get(provider)
+              ? cost / this.requestStats.get(provider)!
+              : 0,
           },
         ])
       ),
@@ -471,7 +534,7 @@ export class ChainManager {
       healthPercentage: totalProviders > 0 ? (healthyProviders / totalProviders) * 100 : 0,
       providerStatus: Object.fromEntries(
         Array.from(this.providers.entries()).map(([chainId, provider]) => [
-          CHAIN_CONFIGS[chainId].name,
+          chainId,
           {
             healthy: this.providerHealth.get(chainId) || false,
             provider: provider.name,
@@ -480,6 +543,61 @@ export class ChainManager {
         ])
       ),
     };
+  }
+
+  /**
+   * Stop the ChainManager and cleanup resources
+   * Called during graceful shutdown
+   */
+  async stop(): Promise<void> {
+    try {
+      logger.info('ChainManager: Starting graceful shutdown...');
+
+      // Clear health checking interval
+      if (this.healthCheckInterval) {
+        clearInterval(this.healthCheckInterval);
+        this.healthCheckInterval = null;
+        logger.debug('ChainManager: Health check interval cleared');
+      }
+
+      // Clear cost tracking intervals
+      if (this.costResetInterval) {
+        clearInterval(this.costResetInterval);
+        this.costResetInterval = null;
+        logger.debug('ChainManager: Cost reset interval cleared');
+      }
+
+      if (this.costReportInterval) {
+        clearInterval(this.costReportInterval);
+        this.costReportInterval = null;
+        logger.debug('ChainManager: Cost report interval cleared');
+      }
+
+      // Stop all providers
+      const stopPromises = Array.from(this.providers.values()).map(async provider => {
+        try {
+          if (typeof provider.stop === 'function') {
+            await provider.stop();
+          }
+          logger.debug(`ChainManager: Provider ${provider.name} stopped`);
+        } catch (error) {
+          logger.error(`ChainManager: Error stopping provider ${provider.name}:`, { error });
+        }
+      });
+
+      await Promise.allSettled(stopPromises);
+
+      // Clear internal state
+      this.providers.clear();
+      this.providerHealth.clear();
+      this.costTracker.clear();
+      this.requestStats.clear();
+
+      logger.info('ChainManager: Graceful shutdown completed');
+    } catch (error) {
+      logger.error('ChainManager: Error during graceful shutdown:', { error });
+      throw error;
+    }
   }
 }
 
@@ -508,5 +626,16 @@ export const createChainManager = (): ChainManager => {
   return new ChainManager(managerConfig);
 };
 
-// Singleton instance
-export const chainManager = createChainManager();
+// Lazy singleton accessor to avoid import-time side effects
+let _chainManager: ChainManager | null = null;
+export const getChainManager = (): ChainManager => {
+  if (!_chainManager) {
+    _chainManager = createChainManager();
+  }
+  return _chainManager;
+};
+
+// For testing environments only
+export const __resetChainManagerForTests = () => {
+  _chainManager = null;
+};
