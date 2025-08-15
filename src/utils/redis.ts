@@ -1,6 +1,7 @@
 import { createClient, RedisClientType } from 'redis';
-import { config } from '@/config/environment';
+import { config } from '@/config';
 import { logger } from './logger';
+import { recordCacheEvent } from '@/utils/metrics';
 
 class RedisManager {
   private static instance: RedisManager;
@@ -12,8 +13,7 @@ class RedisManager {
       url: config.redis.url,
       socket: {
         connectTimeout: 10000,
-        lazyConnect: true,
-        reconnectStrategy: (retries) => {
+        reconnectStrategy: retries => {
           if (retries > 10) {
             logger.error('Redis: Max reconnection attempts reached');
             return false;
@@ -45,7 +45,7 @@ class RedisManager {
       logger.info('Redis: Client ready');
     });
 
-    this.client.on('error', (error) => {
+    this.client.on('error', error => {
       this.isConnected = false;
       logger.error('Redis: Connection error', { error: error.message });
     });
@@ -72,6 +72,33 @@ class RedisManager {
     }
   }
 
+  /**
+   * Gracefully quit the Redis connection
+   * Called during application shutdown
+   */
+  public async quit(): Promise<void> {
+    try {
+      if (this.isConnected || this.client.isOpen) {
+        logger.info('Redis: Starting graceful shutdown...');
+        await this.client.quit();
+        this.isConnected = false;
+        logger.info('Redis: Graceful shutdown completed');
+      } else {
+        logger.debug('Redis: Already disconnected, skipping quit');
+      }
+    } catch (error) {
+      logger.error('Redis: Error during graceful shutdown:', { error });
+      // Force disconnect if quit fails
+      try {
+        await this.client.disconnect();
+        this.isConnected = false;
+      } catch (disconnectError) {
+        logger.error('Redis: Error during forced disconnect:', { error: disconnectError });
+      }
+      throw error;
+    }
+  }
+
   public getClient(): RedisClientType {
     return this.client;
   }
@@ -84,27 +111,25 @@ class RedisManager {
   public async get<T>(key: string): Promise<T | null> {
     try {
       const value = await this.client.get(key);
-      return value ? JSON.parse(value) : null;
+      const hit = !!value;
+      recordCacheEvent(hit, 'redis');
+      return hit ? JSON.parse(value as string) : null;
     } catch (error) {
       logger.error(`Redis GET error for key ${key}:`, { error });
       return null;
     }
   }
 
-  public async set<T>(
-    key: string,
-    value: T,
-    ttlSeconds?: number
-  ): Promise<boolean> {
+  public async set<T>(key: string, value: T, ttlSeconds?: number): Promise<boolean> {
     try {
       const serialized = JSON.stringify(value);
-      
+
       if (ttlSeconds) {
         await this.client.setEx(key, ttlSeconds, serialized);
       } else {
         await this.client.set(key, serialized);
       }
-      
+
       return true;
     } catch (error) {
       logger.error(`Redis SET error for key ${key}:`, { error });
@@ -135,17 +160,19 @@ class RedisManager {
   public async mget<T>(keys: string[]): Promise<Array<T | null>> {
     try {
       const values = await this.client.mGet(keys);
-      return values.map(value => value ? JSON.parse(value) : null);
+      return values.map(value => (value ? JSON.parse(value) : null));
     } catch (error) {
       logger.error(`Redis MGET error for keys ${keys.join(', ')}:`, { error });
       return keys.map(() => null);
     }
   }
 
-  public async mset<T>(keyValuePairs: Array<{key: string, value: T, ttl?: number}>): Promise<boolean> {
+  public async mset<T>(
+    keyValuePairs: Array<{ key: string; value: T; ttl?: number }>
+  ): Promise<boolean> {
     try {
       const pipeline = this.client.multi();
-      
+
       keyValuePairs.forEach(({ key, value, ttl }) => {
         const serialized = JSON.stringify(value);
         if (ttl) {
@@ -154,7 +181,7 @@ class RedisManager {
           pipeline.set(key, serialized);
         }
       });
-      
+
       await pipeline.exec();
       return true;
     } catch (error) {
@@ -177,7 +204,7 @@ class RedisManager {
     try {
       const keys = await this.keys(pattern);
       if (keys.length === 0) return 0;
-      
+
       const result = await this.client.del(keys);
       logger.info(`Redis: Flushed ${result} keys matching pattern ${pattern}`);
       return result;
@@ -211,26 +238,21 @@ class RedisManager {
       const start = Date.now();
       await this.ping();
       const latency = Date.now() - start;
-      
+
       return {
         status: 'healthy',
-        latency
+        latency,
       };
     } catch (error) {
       return {
-        status: 'unhealthy'
+        status: 'unhealthy',
       };
     }
   }
 }
 
-// Export singleton instance
+// Export singleton instance (connection is owned by the app lifecycle)
 export const redisManager = RedisManager.getInstance();
 export const redisClient = redisManager.getClient();
-
-// Initialize Redis connection
-redisManager.connect().catch(error => {
-  logger.error('Failed to connect to Redis:', { error });
-});
 
 export default redisManager;

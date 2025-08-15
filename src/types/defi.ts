@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { ChainId } from './blockchain';
 
+export { ChainId };
+
 // Core DeFi position types
 export enum DeFiProtocol {
   AAVE_V3 = 'aave-v3',
@@ -95,12 +97,12 @@ export interface DeFiPosition {
   chainId: ChainId;
   type: PositionType;
   status: PositionStatus;
-  
+
   // Position details
   name: string;
   description?: string;
   url?: string; // Protocol URL
-  
+
   // Assets
   suppliedTokens: Array<{
     token: DeFiToken;
@@ -108,28 +110,28 @@ export interface DeFiPosition {
     amountFormatted: string;
     valueUSD?: number;
   }>;
-  
+
   borrowedTokens?: Array<{
     token: DeFiToken;
     amount: string;
     amountFormatted: string;
     valueUSD?: number;
   }>;
-  
+
   // Financial metrics
   totalValueUSD: number;
   netValueUSD: number; // Total supplied - total borrowed
   yieldInfo?: YieldInfo[];
   rewards?: RewardToken[];
-  
+
   // Risk assessment
   riskMetrics: RiskMetrics;
-  
+
   // Metadata
   createdAt: Date;
   lastUpdatedAt: Date;
   lastActivityAt?: Date;
-  
+
   // Protocol-specific data
   protocolData: Record<string, any>;
 }
@@ -196,6 +198,34 @@ export interface StakingPosition extends DeFiPosition {
   };
 }
 
+export interface VaultPosition extends DeFiPosition {
+  type: PositionType.VAULT;
+  vaultInfo: {
+    vaultAddress: string;
+    vaultName: string;
+    vaultVersion?: string;
+    shares: string;
+    sharesFormatted: string;
+    underlyingAssets: string;
+    underlyingAssetsFormatted: string;
+    pricePerShare?: number;
+    totalSupply?: string;
+  };
+  strategies?: Array<{
+    address: string;
+    name: string;
+    description?: string;
+    allocation?: number; // percentage
+    riskScore?: number;
+    totalAssets?: string;
+  }>;
+  fees?: {
+    managementFee?: number;
+    performanceFee?: number;
+    withdrawalFee?: number;
+  };
+}
+
 // Portfolio aggregation types
 export interface DeFiPortfolioSummary {
   address: string;
@@ -204,7 +234,7 @@ export interface DeFiPortfolioSummary {
   totalSuppliedUSD: number;
   totalBorrowedUSD: number;
   totalRewardsUSD: number;
-  
+
   // Distribution by protocol
   protocolDistribution: Array<{
     protocol: DeFiProtocol;
@@ -212,7 +242,7 @@ export interface DeFiPortfolioSummary {
     percentage: number;
     positionCount: number;
   }>;
-  
+
   // Distribution by chain
   chainDistribution: Array<{
     chainId: ChainId;
@@ -220,7 +250,7 @@ export interface DeFiPortfolioSummary {
     percentage: number;
     positionCount: number;
   }>;
-  
+
   // Distribution by position type
   typeDistribution: Array<{
     type: PositionType;
@@ -228,7 +258,7 @@ export interface DeFiPortfolioSummary {
     percentage: number;
     positionCount: number;
   }>;
-  
+
   // Risk summary
   riskSummary: {
     overallRisk: RiskLevel;
@@ -237,7 +267,7 @@ export interface DeFiPortfolioSummary {
     averageHealthFactor?: number;
     liquidationThreshold?: number;
   };
-  
+
   // Yield summary
   yieldSummary: {
     totalYieldUSD24h: number;
@@ -246,7 +276,7 @@ export interface DeFiPortfolioSummary {
     bestPerformingPosition?: string;
     worstPerformingPosition?: string;
   };
-  
+
   positions: DeFiPosition[];
   lastUpdated: Date;
 }
@@ -256,19 +286,19 @@ export interface ProtocolAdapter {
   readonly protocol: DeFiProtocol;
   readonly supportedChains: ChainId[];
   readonly version: string;
-  
+
   // Health check
   isHealthy(): Promise<boolean>;
   getHealth(): ProtocolHealth;
-  
+
   // Position fetching
   getPositions(address: string, chainId?: ChainId): Promise<DeFiPosition[]>;
   getPosition(positionId: string, chainId: ChainId): Promise<DeFiPosition | null>;
-  
+
   // Real-time updates
   subscribeToUpdates?(address: string, callback: (position: DeFiPosition) => void): Promise<string>;
   unsubscribeFromUpdates?(subscriptionId: string): Promise<void>;
-  
+
   // Utility methods
   estimateGasCosts?(action: string, params: any): Promise<number>;
   getProtocolMetadata(): ProtocolMetadata;
@@ -351,18 +381,24 @@ export const DeFiPositionSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   url: z.string().url().optional(),
-  suppliedTokens: z.array(z.object({
-    token: DeFiTokenSchema,
-    amount: z.string(),
-    amountFormatted: z.string(),
-    valueUSD: z.number().optional(),
-  })),
-  borrowedTokens: z.array(z.object({
-    token: DeFiTokenSchema,
-    amount: z.string(),
-    amountFormatted: z.string(),
-    valueUSD: z.number().optional(),
-  })).optional(),
+  suppliedTokens: z.array(
+    z.object({
+      token: DeFiTokenSchema,
+      amount: z.string(),
+      amountFormatted: z.string(),
+      valueUSD: z.number().optional(),
+    })
+  ),
+  borrowedTokens: z
+    .array(
+      z.object({
+        token: DeFiTokenSchema,
+        amount: z.string(),
+        amountFormatted: z.string(),
+        valueUSD: z.number().optional(),
+      })
+    )
+    .optional(),
   totalValueUSD: z.number(),
   netValueUSD: z.number(),
   yieldInfo: z.array(YieldInfoSchema).optional(),
@@ -374,13 +410,16 @@ export const DeFiPositionSchema = z.object({
 });
 
 // Constants
-export const PROTOCOL_CONFIGS: Record<DeFiProtocol, {
-  name: string;
-  website: string;
-  logoUrl: string;
-  supportedChains: ChainId[];
-  category: string;
-}> = {
+export const PROTOCOL_CONFIGS: Record<
+  DeFiProtocol,
+  {
+    name: string;
+    website: string;
+    logoUrl: string;
+    supportedChains: ChainId[];
+    category: string;
+  }
+> = {
   [DeFiProtocol.AAVE_V3]: {
     name: 'Aave V3',
     website: 'https://aave.com',
@@ -399,7 +438,13 @@ export const PROTOCOL_CONFIGS: Record<DeFiProtocol, {
     name: 'Uniswap V3',
     website: 'https://uniswap.org',
     logoUrl: 'https://cryptologos.cc/logos/uniswap-uni-logo.png',
-    supportedChains: [ChainId.ETHEREUM, ChainId.POLYGON, ChainId.ARBITRUM, ChainId.OPTIMISM, ChainId.BASE],
+    supportedChains: [
+      ChainId.ETHEREUM,
+      ChainId.POLYGON,
+      ChainId.ARBITRUM,
+      ChainId.OPTIMISM,
+      ChainId.BASE,
+    ],
     category: 'DEX',
   },
   [DeFiProtocol.CURVE]: {
