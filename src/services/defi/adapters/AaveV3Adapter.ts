@@ -273,12 +273,19 @@ export class AaveV3Adapter implements ProtocolAdapter {
         provider
       );
 
-      // Get user data
-      const [userReservesData, userAccountData, reservesData] = await Promise.all([
-        poolDataProvider.getUserReservesData(address) as Promise<AaveUserReserveData[]>,
-        pool.getUserAccountData(address) as Promise<AaveUserAccountData>,
-        poolDataProvider.getReservesData() as Promise<AaveReserveData[]>,
-      ]);
+      // Get user data with timeout and error handling
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Aave contract call timeout')), 30000)
+      );
+
+      const [userReservesData, userAccountData, reservesData] = await Promise.race([
+        Promise.all([
+          poolDataProvider.getUserReservesData(address) as Promise<AaveUserReserveData[]>,
+          pool.getUserAccountData(address) as Promise<AaveUserAccountData>,
+          poolDataProvider.getReservesData() as Promise<AaveReserveData[]>,
+        ]),
+        timeoutPromise
+      ]) as [AaveUserReserveData[], AaveUserAccountData, AaveReserveData[]];
 
       // Create a map of reserve data for quick lookup
       const reserveMap = new Map<string, AaveReserveData>();
@@ -331,9 +338,13 @@ export class AaveV3Adapter implements ProtocolAdapter {
           priceUSD: tokenPriceUSD,
         };
 
-        // Calculate position value
-        const supplyValueUSD = supplyBalance * tokenPriceUSD;
-        const borrowValueUSD = (variableDebtBalance + stableDebtBalance) * tokenPriceUSD;
+        // Calculate position value with safety checks
+        const supplyValueUSD = Number.isFinite(supplyBalance * tokenPriceUSD) 
+          ? supplyBalance * tokenPriceUSD 
+          : 0;
+        const borrowValueUSD = Number.isFinite((variableDebtBalance + stableDebtBalance) * tokenPriceUSD) 
+          ? (variableDebtBalance + stableDebtBalance) * tokenPriceUSD 
+          : 0;
         const netValueUSD = supplyValueUSD - borrowValueUSD;
 
         // Calculate yield info
@@ -362,6 +373,11 @@ export class AaveV3Adapter implements ProtocolAdapter {
           collateralRatio: userReserve.usageAsCollateralEnabled ? liquidationThreshold : undefined,
           utilizationRate: supplyBalance > 0 ? (variableDebtBalance + stableDebtBalance) / supplyBalance : 0,
         };
+
+        // Skip positions with dust amounts (< $0.01)
+        if (Math.max(supplyValueUSD, borrowValueUSD) < 0.01) {
+          continue;
+        }
 
         // Create position
         const position: LendingPosition = {
@@ -397,9 +413,9 @@ export class AaveV3Adapter implements ProtocolAdapter {
           }] : [],
 
           borrowingPower: {
-            totalBorrowingPowerUSD: Number(userAccountData.totalCollateralETH) / 1e18 * tokenPriceUSD,
-            usedBorrowingPowerUSD: Number(userAccountData.totalDebtETH) / 1e18 * tokenPriceUSD,
-            availableBorrowingPowerUSD: Number(userAccountData.availableBorrowsETH) / 1e18 * tokenPriceUSD,
+            totalBorrowingPowerUSD: this.safeNumberConversion(userAccountData.totalCollateralETH, 18) * tokenPriceUSD,
+            usedBorrowingPowerUSD: this.safeNumberConversion(userAccountData.totalDebtETH, 18) * tokenPriceUSD,
+            availableBorrowingPowerUSD: this.safeNumberConversion(userAccountData.availableBorrowsETH, 18) * tokenPriceUSD,
           },
 
           totalValueUSD: Math.max(supplyValueUSD, borrowValueUSD),
@@ -441,9 +457,32 @@ export class AaveV3Adapter implements ProtocolAdapter {
   private calculateBalance(scaledBalance: bigint, index: bigint, decimals: number): number {
     if (scaledBalance === 0n) return 0;
     
-    // Ray math: scaled balance * index / 1e27
-    const balance = (scaledBalance * index) / BigInt(1e27);
-    return Number(balance) / Math.pow(10, decimals);
+    try {
+      // Ray math: scaled balance * index / 1e27
+      const balance = (scaledBalance * index) / BigInt(1e27);
+      const result = Number(balance) / Math.pow(10, decimals);
+      
+      // Safety check for valid numbers
+      return Number.isFinite(result) ? result : 0;
+    } catch (error) {
+      logger.warn('Error calculating Aave balance', { 
+        scaledBalance: scaledBalance.toString(), 
+        index: index.toString(), 
+        decimals,
+        error 
+      });
+      return 0;
+    }
+  }
+
+  private safeNumberConversion(value: bigint, decimals: number): number {
+    try {
+      const result = Number(value) / Math.pow(10, decimals);
+      return Number.isFinite(result) ? result : 0;
+    } catch (error) {
+      logger.warn('Error converting bigint to number', { value: value.toString(), decimals, error });
+      return 0;
+    }
   }
 
   private rayToPercentage(rayValue: bigint): number {
@@ -474,17 +513,59 @@ export class AaveV3Adapter implements ProtocolAdapter {
 
   private async getTokenPrice(tokenAddress: string, chainId: ChainId): Promise<number> {
     try {
-      // This is a simplified price fetch - in production, integrate with price oracles
-      // For now, return mock prices
-      const mockPrices: Record<string, number> = {
-        '0xa0b86a33e6ba72a35c3ca96c2f0b96ff6fcf7b13': 2000, // ETH (placeholder)
-        '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 45000, // WBTC (placeholder)
-        '0xa0b86a33e6ba72a35c3ca96c2f0b96ff6fcf7b13': 1, // USDC (placeholder)
+      // Try cache first
+      const cacheKey = `token-price:${chainId}:${tokenAddress.toLowerCase()}`;
+      const cached = await redisManager.get<number>(cacheKey);
+      
+      if (cached) {
+        return cached;
+      }
+
+      // In production, integrate with price feeds like:
+      // - Chainlink Price Feeds
+      // - CoinGecko API
+      // - DeFiLlama API
+      // - DEX aggregators (1inch, 0x)
+      
+      // For now, use realistic mock prices based on common tokens
+      const tokenPrices: Record<string, Record<string, number>> = {
+        [ChainId.ETHEREUM]: {
+          '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 2000, // WETH
+          '0xa0b86a33e6441b8435b6ba10d7c6f8c7e7eaee5a': 1, // USDC
+          '0xdac17f958d2ee523a2206206994597c13d831ec7': 1, // USDT
+          '0x6b175474e89094c44da98b954eedeac495271d0f': 1, // DAI
+          '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 45000, // WBTC
+          '0x514910771af9ca656af840dff83e8264ecf986ca': 15, // LINK
+        },
+        [ChainId.POLYGON]: {
+          '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619': 2000, // WETH
+          '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': 1, // USDC
+          '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': 1, // USDT
+          '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270': 0.8, // WMATIC
+        },
+        [ChainId.ARBITRUM]: {
+          '0x82af49447d8a07e3bd95bd0d56f35241523fbab1': 2000, // WETH
+          '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8': 1, // USDC
+          '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9': 1, // USDT
+          '0x912ce59144191c1204e64559fe8253a0e49e6548': 1.2, // ARB
+        },
+        [ChainId.OPTIMISM]: {
+          '0x4200000000000000000000000000000000000006': 2000, // WETH
+          '0x7f5c764cbc14f9669b88837ca1490cca17c31607': 1, // USDC
+          '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58': 1, // USDT
+          '0x4200000000000000000000000000000000000042': 1.8, // OP
+        }
       };
       
-      return mockPrices[tokenAddress.toLowerCase()] || 1;
+      const chainPrices = tokenPrices[chainId] || {};
+      const price = chainPrices[tokenAddress.toLowerCase()] || 1;
+      
+      // Cache for 1 minute
+      await redisManager.set(cacheKey, price, 60);
+      
+      return price;
     } catch (error) {
-      logger.warn(`Failed to get price for token ${tokenAddress}`, { error });
+      logger.warn(`Failed to get price for token ${tokenAddress}`, { error, chainId });
       return 1; // Fallback price
     }
   }

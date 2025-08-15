@@ -11,6 +11,11 @@ import {
   PositionType,
   RiskLevel,
 } from '@/types/defi';
+import { 
+  ProtocolAdapterManager, 
+  AdapterManagerConfig,
+  createProtocolAdapterManager 
+} from './ProtocolAdapterManager';
 
 interface DeFiOrchestratorConfig {
   enabledProtocols: DeFiProtocol[];
@@ -18,43 +23,49 @@ interface DeFiOrchestratorConfig {
   defaultCacheTtl: number;
   healthCheckInterval: number;
   fallbackToCache: boolean;
+  rpcUrls: Partial<Record<ChainId, string>>;
 }
 
 export class DeFiOrchestrator {
-  private adapters: Map<DeFiProtocol, ProtocolAdapter> = new Map();
-  private adapterHealth: Map<DeFiProtocol, ProtocolHealth> = new Map();
+  private adapterManager: ProtocolAdapterManager;
   private healthCheckTimer?: NodeJS.Timer;
 
   constructor(private readonly config: DeFiOrchestratorConfig) {
+    // Initialize the adapter manager
+    const managerConfig: AdapterManagerConfig = {
+      enabledProtocols: config.enabledProtocols,
+      healthCheckIntervalMs: config.healthCheckInterval,
+      maxRetries: 3,
+      retryDelayMs: 5000,
+      enableAutoRecovery: true,
+      rpcUrls: config.rpcUrls,
+    };
+    
+    this.adapterManager = createProtocolAdapterManager(managerConfig);
     this.startHealthMonitoring();
   }
 
   /**
-   * Register a protocol adapter
+   * Initialize the orchestrator and all adapters
    */
-  registerAdapter(adapter: ProtocolAdapter): void {
-    this.adapters.set(adapter.protocol, adapter);
-    this.adapterHealth.set(adapter.protocol, adapter.getHealth());
-    
-    logger.info(`DeFi adapter registered: ${adapter.protocol}`, {
-      protocol: adapter.protocol,
-      version: adapter.version,
-      supportedChains: adapter.supportedChains,
-    });
+  async initialize(): Promise<void> {
+    await this.adapterManager.initialize();
+    logger.info('DeFi Orchestrator initialized successfully');
   }
 
   /**
    * Get all registered protocol adapters
    */
   getRegisteredProtocols(): DeFiProtocol[] {
-    return Array.from(this.adapters.keys());
+    return this.adapterManager.getAllAdapters().map(adapter => adapter.protocol);
   }
 
   /**
    * Get health status of all protocol adapters
    */
   getHealthStatus(): Record<DeFiProtocol, ProtocolHealth> {
-    return Object.fromEntries(this.adapterHealth);
+    const healthMap = this.adapterManager.getHealthStatus();
+    return Object.fromEntries(healthMap);
   }
 
   /**
@@ -196,7 +207,7 @@ export class DeFiOrchestrator {
     address: string,
     chainId?: ChainId
   ): Promise<DeFiApiResponse<DeFiPosition[]>> {
-    const adapter = this.adapters.get(protocol);
+    const adapter = this.adapterManager.getAdapter(protocol);
     const requestId = `protocol-positions-${protocol}-${address}-${Date.now()}`;
 
     if (!adapter) {
@@ -215,7 +226,8 @@ export class DeFiOrchestrator {
     }
 
     // Check adapter health
-    const health = this.adapterHealth.get(protocol);
+    const healthMap = this.adapterManager.getHealthStatus();
+    const health = healthMap.get(protocol);
     if (!health?.isHealthy) {
       return {
         success: false,
@@ -317,72 +329,23 @@ export class DeFiOrchestrator {
     chainIds?: ChainId[],
     protocols?: DeFiProtocol[]
   ): Promise<DeFiPosition[]> {
-    const targetProtocols = protocols || this.config.enabledProtocols;
-    const healthyAdapters = targetProtocols
-      .filter(protocol => {
-        const adapter = this.adapters.get(protocol);
-        const health = this.adapterHealth.get(protocol);
-        return adapter && health?.isHealthy;
-      })
-      .map(protocol => this.adapters.get(protocol)!)
-      .filter(adapter => {
-        // Filter by supported chains if specified
-        if (chainIds) {
-          return chainIds.some(chainId => adapter.supportedChains.includes(chainId));
+    // Use adapter manager to get positions
+    if (protocols && protocols.length === 1) {
+      // Single protocol optimization
+      const adapter = this.adapterManager.getAdapter(protocols[0]);
+      if (adapter) {
+        try {
+          return await adapter.getPositions(address, chainIds?.[0]);
+        } catch (error) {
+          logger.error(`Failed to get positions from ${protocols[0]}:`, error);
+          return [];
         }
-        return true;
-      });
-
-    logger.info(`Fetching positions from ${healthyAdapters.length} healthy adapters`, {
-      address,
-      adapters: healthyAdapters.map(a => a.protocol),
-    });
-
-    // Fetch positions from all adapters concurrently
-    const fetchPromises = healthyAdapters.map(async adapter => {
-      try {
-        const positions = await Promise.race([
-          adapter.getPositions(address, chainIds?.[0]),
-          new Promise<DeFiPosition[]>((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout')), 30000)
-          )
-        ]);
-        
-        return {
-          protocol: adapter.protocol,
-          positions,
-          success: true,
-        };
-      } catch (error) {
-        logger.warn(`Failed to fetch positions from ${adapter.protocol}`, {
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        return {
-          protocol: adapter.protocol,
-          positions: [] as DeFiPosition[],
-          success: false,
-        };
       }
-    });
-
-    const results = await Promise.all(fetchPromises);
-    const allPositions: DeFiPosition[] = [];
+      return [];
+    }
     
-    results.forEach(result => {
-      if (result.success) {
-        allPositions.push(...result.positions);
-      }
-    });
-
-    logger.info(`Fetched ${allPositions.length} total DeFi positions`, {
-      address,
-      positionsByProtocol: results.reduce((acc, result) => {
-        acc[result.protocol] = result.positions.length;
-        return acc;
-      }, {} as Record<string, number>),
-    });
-
-    return allPositions;
+    // Multiple protocols - use the manager's aggregation method
+    return await this.adapterManager.getAllPositions(address, chainIds?.[0]);
   }
 
   /**
@@ -577,75 +540,60 @@ export class DeFiOrchestrator {
    * Start health monitoring for all adapters
    */
   private startHealthMonitoring(): void {
+    // The adapter manager handles its own health monitoring
+    // This timer is just for orchestrator-level health checks
     this.healthCheckTimer = setInterval(async () => {
-      await this.performHealthChecks();
+      const healthStatus = this.getHealthStatus();
+      const unhealthyProtocols = Object.entries(healthStatus)
+        .filter(([_, health]) => !health.isHealthy)
+        .map(([protocol, _]) => protocol);
+      
+      if (unhealthyProtocols.length > 0) {
+        logger.warn('DeFi Orchestrator health check found unhealthy protocols', {
+          unhealthyProtocols,
+          totalProtocols: Object.keys(healthStatus).length,
+        });
+      }
     }, this.config.healthCheckInterval);
   }
 
   /**
-   * Perform health checks on all adapters
+   * Stop health monitoring and shutdown
    */
-  private async performHealthChecks(): Promise<void> {
-    const healthPromises = Array.from(this.adapters.entries()).map(async ([protocol, adapter]) => {
-      try {
-        const isHealthy = await adapter.isHealthy();
-        const health: ProtocolHealth = {
-          ...adapter.getHealth(),
-          isHealthy,
-          lastCheckedAt: new Date(),
-        };
-        
-        this.adapterHealth.set(protocol, health);
-        
-        if (!isHealthy) {
-          logger.warn(`Protocol adapter ${protocol} is unhealthy`, { health });
-        }
-      } catch (error) {
-        logger.error(`Health check failed for ${protocol}`, { error });
-        this.adapterHealth.set(protocol, {
-          isHealthy: false,
-          lastCheckedAt: new Date(),
-          responseTime: undefined,
-          errorRate: 1.0,
-          uptime: 0,
-          issues: [error instanceof Error ? error.message : 'Unknown error'],
-        });
-      }
-    });
-
-    await Promise.allSettled(healthPromises);
-  }
-
-  /**
-   * Stop health monitoring
-   */
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
       this.healthCheckTimer = undefined;
     }
+    
+    await this.adapterManager.shutdown();
+    logger.info('DeFi Orchestrator stopped');
   }
 }
 
 // Factory function to create DeFiOrchestrator with default config
-export const createDeFiOrchestrator = (): DeFiOrchestrator => {
+export const createDeFiOrchestrator = (rpcUrls: Partial<Record<ChainId, string>>): DeFiOrchestrator => {
   const config: DeFiOrchestratorConfig = {
     enabledProtocols: [
       DeFiProtocol.AAVE_V3,
-      DeFiProtocol.COMPOUND_V3,
       DeFiProtocol.UNISWAP_V3,
+      DeFiProtocol.COMPOUND_V3,
       DeFiProtocol.CURVE,
       DeFiProtocol.YEARN,
-      DeFiProtocol.LIDO,
+      // Add more as they're implemented
+      // DeFiProtocol.LIDO,
     ],
     maxConcurrentRequests: 10,
     defaultCacheTtl: 300, // 5 minutes
     healthCheckInterval: 60000, // 1 minute
     fallbackToCache: true,
+    rpcUrls,
   };
 
   return new DeFiOrchestrator(config);
 };
 
-// Singleton instance
-export const defiOrchestrator = createDeFiOrchestrator();
+// Factory for creating singleton with RPC URLs from config
+export const createDeFiOrchestratorSingleton = (rpcUrls: Partial<Record<ChainId, string>>): DeFiOrchestrator => {
+  return createDeFiOrchestrator(rpcUrls);
+};

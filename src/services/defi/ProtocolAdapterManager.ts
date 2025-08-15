@@ -5,57 +5,47 @@
  * Handles dynamic loading, health monitoring, and adapter coordination.
  */
 
-import { Logger } from 'pino';
+import { logger } from '@/utils/logger';
 import { EventEmitter } from 'events';
 import {
-  IProtocolAdapter,
-  ProtocolType,
+  ProtocolAdapter,
+  DeFiProtocol,
   ChainId,
-  AdapterHealth,
-  DeFiProtocolError,
-  ProtocolConfig
-} from '../../types/defi';
-import { AaveV3Adapter } from './adapters/AaveV3Adapter';
-import { UniswapV3Adapter } from './adapters/UniswapV3Adapter';
-// Import other adapters as they're implemented
-// import { CompoundV3Adapter } from './adapters/CompoundV3Adapter';
-// import { CurveAdapter } from './adapters/CurveAdapter';
-// import { YearnAdapter } from './adapters/YearnAdapter';
+  ProtocolHealth,
+  DeFiPosition
+} from '@/types/defi';
+import { createAaveV3Adapter } from './adapters/AaveV3Adapter';
+import { createUniswapV3Adapter } from './adapters/UniswapV3Adapter';
+import { createCurveAdapter } from './adapters/CurveAdapter';
+import { createCompoundV3Adapter } from './adapters/CompoundV3Adapter';
+import { createYearnAdapter } from './adapters/YearnAdapter';
 
 export interface AdapterManagerConfig {
-  enabledProtocols: ProtocolType[];
+  enabledProtocols: DeFiProtocol[];
   healthCheckIntervalMs: number;
   maxRetries: number;
   retryDelayMs: number;
   enableAutoRecovery: boolean;
+  rpcUrls: Partial<Record<ChainId, string>>;
 }
 
 export interface AdapterInfo {
-  adapter: IProtocolAdapter;
+  adapter: ProtocolAdapter;
   isEnabled: boolean;
   isHealthy: boolean;
   lastHealthCheck: number;
   errorCount: number;
   lastError?: string;
-  config?: ProtocolConfig;
 }
 
 export class ProtocolAdapterManager extends EventEmitter {
-  private readonly adapters = new Map<ProtocolType, AdapterInfo>();
-  private readonly adapterFactory = new Map<ProtocolType, () => IProtocolAdapter>();
+  private readonly adapters = new Map<DeFiProtocol, AdapterInfo>();
+  private readonly adapterFactory = new Map<DeFiProtocol, () => ProtocolAdapter>();
   private healthCheckInterval?: NodeJS.Timeout;
   private isInitialized = false;
 
   constructor(
-    private readonly logger: Logger,
-    private readonly config: AdapterManagerConfig,
-    // Dependencies for adapter construction
-    private readonly dependencies: {
-      rpcProvider: any;
-      subgraphClient: any;
-      priceService: any;
-      contractManager: any;
-    }
+    private readonly config: AdapterManagerConfig
   ) {
     super();
     this.registerAdapterFactories();
@@ -66,7 +56,7 @@ export class ProtocolAdapterManager extends EventEmitter {
    * Initialize the adapter manager and load all enabled adapters
    */
   async initialize(): Promise<void> {
-    this.logger.info('Initializing Protocol Adapter Manager...');
+    logger.info('Initializing Protocol Adapter Manager...');
 
     try {
       // Load enabled adapters
@@ -84,10 +74,10 @@ export class ProtocolAdapterManager extends EventEmitter {
         
         if (result.status === 'fulfilled') {
           successCount++;
-          this.logger.info(`Successfully loaded adapter for ${protocol}`);
+          logger.info(`Successfully loaded adapter for ${protocol}`);
         } else {
           failureCount++;
-          this.logger.error(`Failed to load adapter for ${protocol}:`, result.reason);
+          logger.error(`Failed to load adapter for ${protocol}:`, result.reason);
         }
       });
 
@@ -97,7 +87,7 @@ export class ProtocolAdapterManager extends EventEmitter {
       }
 
       this.isInitialized = true;
-      this.logger.info(
+      logger.info(
         `Protocol Adapter Manager initialized: ${successCount} adapters loaded, ${failureCount} failed`
       );
 
@@ -108,7 +98,7 @@ export class ProtocolAdapterManager extends EventEmitter {
       });
 
     } catch (error) {
-      this.logger.error('Failed to initialize Protocol Adapter Manager:', error);
+      logger.error('Failed to initialize Protocol Adapter Manager:', error);
       throw error;
     }
   }
@@ -116,9 +106,9 @@ export class ProtocolAdapterManager extends EventEmitter {
   /**
    * Load a specific protocol adapter
    */
-  async loadAdapter(protocol: ProtocolType): Promise<void> {
+  async loadAdapter(protocol: DeFiProtocol): Promise<void> {
     if (this.adapters.has(protocol)) {
-      this.logger.debug(`Adapter for ${protocol} already loaded`);
+      logger.debug(`Adapter for ${protocol} already loaded`);
       return;
     }
 
@@ -128,7 +118,7 @@ export class ProtocolAdapterManager extends EventEmitter {
     }
 
     try {
-      this.logger.debug(`Loading adapter for ${protocol}...`);
+      logger.debug(`Loading adapter for ${protocol}...`);
       
       const adapter = factory();
       const adapterInfo: AdapterInfo = {
@@ -141,23 +131,24 @@ export class ProtocolAdapterManager extends EventEmitter {
 
       // Perform initial health check
       try {
-        const health = await adapter.getAdapterHealth();
-        adapterInfo.isHealthy = health.isHealthy;
+        const isHealthy = await adapter.isHealthy();
+        const health = adapter.getHealth();
+        adapterInfo.isHealthy = isHealthy;
         adapterInfo.lastHealthCheck = Date.now();
         
-        if (!health.isHealthy) {
-          adapterInfo.lastError = health.lastError;
+        if (!isHealthy) {
+          adapterInfo.lastError = health.issues?.join(', ') || 'Unknown health issue';
         }
       } catch (error) {
         adapterInfo.lastError = error instanceof Error ? error.message : 'Health check failed';
-        this.logger.warn(`Initial health check failed for ${protocol}:`, error);
+        logger.warn(`Initial health check failed for ${protocol}:`, error);
       }
 
       this.adapters.set(protocol, adapterInfo);
       this.emit('adapterLoaded', protocol, adapterInfo);
 
     } catch (error) {
-      this.logger.error(`Failed to load adapter for ${protocol}:`, error);
+      logger.error(`Failed to load adapter for ${protocol}:`, error);
       throw error;
     }
   }
@@ -165,10 +156,10 @@ export class ProtocolAdapterManager extends EventEmitter {
   /**
    * Unload a specific protocol adapter
    */
-  async unloadAdapter(protocol: ProtocolType): Promise<void> {
+  async unloadAdapter(protocol: DeFiProtocol): Promise<void> {
     const adapterInfo = this.adapters.get(protocol);
     if (!adapterInfo) {
-      this.logger.debug(`Adapter for ${protocol} not loaded`);
+      logger.debug(`Adapter for ${protocol} not loaded`);
       return;
     }
 
@@ -180,10 +171,10 @@ export class ProtocolAdapterManager extends EventEmitter {
 
       this.adapters.delete(protocol);
       this.emit('adapterUnloaded', protocol);
-      this.logger.info(`Unloaded adapter for ${protocol}`);
+      logger.info(`Unloaded adapter for ${protocol}`);
 
     } catch (error) {
-      this.logger.error(`Failed to unload adapter for ${protocol}:`, error);
+      logger.error(`Failed to unload adapter for ${protocol}:`, error);
       throw error;
     }
   }
@@ -191,7 +182,7 @@ export class ProtocolAdapterManager extends EventEmitter {
   /**
    * Get a specific protocol adapter
    */
-  getAdapter(protocol: ProtocolType): IProtocolAdapter | null {
+  getAdapter(protocol: DeFiProtocol): ProtocolAdapter | null {
     const adapterInfo = this.adapters.get(protocol);
     return adapterInfo?.isEnabled ? adapterInfo.adapter : null;
   }
@@ -199,7 +190,7 @@ export class ProtocolAdapterManager extends EventEmitter {
   /**
    * Get all active adapters
    */
-  getAllAdapters(): IProtocolAdapter[] {
+  getAllAdapters(): ProtocolAdapter[] {
     return Array.from(this.adapters.values())
       .filter(info => info.isEnabled)
       .map(info => info.adapter);
@@ -208,7 +199,7 @@ export class ProtocolAdapterManager extends EventEmitter {
   /**
    * Get adapters that support a specific chain
    */
-  getAdaptersForChain(chainId: ChainId): IProtocolAdapter[] {
+  getAdaptersForChain(chainId: ChainId): ProtocolAdapter[] {
     return this.getAllAdapters().filter(adapter =>
       adapter.supportedChains.includes(chainId)
     );
@@ -217,16 +208,17 @@ export class ProtocolAdapterManager extends EventEmitter {
   /**
    * Get health status of all adapters
    */
-  getHealthStatus(): Map<ProtocolType, AdapterHealth> {
-    const healthMap = new Map<ProtocolType, AdapterHealth>();
+  getHealthStatus(): Map<DeFiProtocol, ProtocolHealth> {
+    const healthMap = new Map<DeFiProtocol, ProtocolHealth>();
 
     for (const [protocol, adapterInfo] of this.adapters) {
       healthMap.set(protocol, {
         isHealthy: adapterInfo.isHealthy,
-        lastSuccessfulFetch: adapterInfo.lastHealthCheck,
+        lastCheckedAt: new Date(adapterInfo.lastHealthCheck),
+        responseTime: 0, // Would be tracked separately
         errorRate: this.calculateErrorRate(adapterInfo),
-        averageResponseTime: 0, // Would be tracked separately
-        lastError: adapterInfo.lastError
+        uptime: adapterInfo.isHealthy ? 100 : 0,
+        issues: adapterInfo.lastError ? [adapterInfo.lastError] : []
       });
     }
 
@@ -236,11 +228,11 @@ export class ProtocolAdapterManager extends EventEmitter {
   /**
    * Enable a specific protocol adapter
    */
-  enableAdapter(protocol: ProtocolType): void {
+  enableAdapter(protocol: DeFiProtocol): void {
     const adapterInfo = this.adapters.get(protocol);
     if (adapterInfo) {
       adapterInfo.isEnabled = true;
-      this.logger.info(`Enabled adapter for ${protocol}`);
+      logger.info(`Enabled adapter for ${protocol}`);
       this.emit('adapterEnabled', protocol);
     } else {
       throw new Error(`Adapter for ${protocol} not found`);
@@ -250,11 +242,11 @@ export class ProtocolAdapterManager extends EventEmitter {
   /**
    * Disable a specific protocol adapter
    */
-  disableAdapter(protocol: ProtocolType): void {
+  disableAdapter(protocol: DeFiProtocol): void {
     const adapterInfo = this.adapters.get(protocol);
     if (adapterInfo) {
       adapterInfo.isEnabled = false;
-      this.logger.info(`Disabled adapter for ${protocol}`);
+      logger.info(`Disabled adapter for ${protocol}`);
       this.emit('adapterDisabled', protocol);
     } else {
       throw new Error(`Adapter for ${protocol} not found`);
@@ -264,17 +256,43 @@ export class ProtocolAdapterManager extends EventEmitter {
   /**
    * Reload a specific protocol adapter
    */
-  async reloadAdapter(protocol: ProtocolType): Promise<void> {
-    this.logger.info(`Reloading adapter for ${protocol}...`);
+  async reloadAdapter(protocol: DeFiProtocol): Promise<void> {
+    logger.info(`Reloading adapter for ${protocol}...`);
     
     try {
       await this.unloadAdapter(protocol);
       await this.loadAdapter(protocol);
-      this.logger.info(`Successfully reloaded adapter for ${protocol}`);
+      logger.info(`Successfully reloaded adapter for ${protocol}`);
     } catch (error) {
-      this.logger.error(`Failed to reload adapter for ${protocol}:`, error);
+      logger.error(`Failed to reload adapter for ${protocol}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Get all positions for an address across all enabled protocols
+   */
+  async getAllPositions(address: string, chainId?: ChainId): Promise<DeFiPosition[]> {
+    const activeAdapters = this.getAllAdapters();
+    const positionPromises = activeAdapters.map(async adapter => {
+      try {
+        return await adapter.getPositions(address, chainId);
+      } catch (error) {
+        logger.error(`Failed to get positions from ${adapter.protocol}:`, error);
+        return [];
+      }
+    });
+
+    const results = await Promise.allSettled(positionPromises);
+    const allPositions: DeFiPosition[] = [];
+
+    results.forEach(result => {
+      if (result.status === 'fulfilled') {
+        allPositions.push(...result.value);
+      }
+    });
+
+    return allPositions;
   }
 
   /**
@@ -288,32 +306,33 @@ export class ProtocolAdapterManager extends EventEmitter {
         }
 
         try {
-          const health = await adapterInfo.adapter.getAdapterHealth();
+          const isHealthy = await adapterInfo.adapter.isHealthy();
+          const health = adapterInfo.adapter.getHealth();
           
           const wasHealthy = adapterInfo.isHealthy;
-          adapterInfo.isHealthy = health.isHealthy;
+          adapterInfo.isHealthy = isHealthy;
           adapterInfo.lastHealthCheck = Date.now();
 
-          if (health.isHealthy) {
+          if (isHealthy) {
             adapterInfo.errorCount = Math.max(0, adapterInfo.errorCount - 1);
             adapterInfo.lastError = undefined;
 
             if (!wasHealthy) {
-              this.logger.info(`Adapter for ${protocol} recovered`);
+              logger.info(`Adapter for ${protocol} recovered`);
               this.emit('adapterRecovered', protocol);
             }
           } else {
             adapterInfo.errorCount++;
-            adapterInfo.lastError = health.lastError;
+            adapterInfo.lastError = health.issues?.join(', ') || 'Unknown health issue';
 
             if (wasHealthy) {
-              this.logger.warn(`Adapter for ${protocol} became unhealthy: ${health.lastError}`);
-              this.emit('adapterUnhealthy', protocol, health.lastError);
+              logger.warn(`Adapter for ${protocol} became unhealthy: ${adapterInfo.lastError}`);
+              this.emit('adapterUnhealthy', protocol, adapterInfo.lastError);
             }
 
             // Auto-recovery attempt
             if (this.config.enableAutoRecovery && adapterInfo.errorCount >= this.config.maxRetries) {
-              this.logger.info(`Attempting auto-recovery for ${protocol}...`);
+              logger.info(`Attempting auto-recovery for ${protocol}...`);
               await this.attemptRecovery(protocol);
             }
           }
@@ -323,7 +342,7 @@ export class ProtocolAdapterManager extends EventEmitter {
           adapterInfo.errorCount++;
           adapterInfo.lastError = error instanceof Error ? error.message : 'Health check error';
           
-          this.logger.error(`Health check failed for ${protocol}:`, error);
+          logger.error(`Health check failed for ${protocol}:`, error);
           this.emit('adapterError', protocol, error);
         }
       }
@@ -337,7 +356,7 @@ export class ProtocolAdapterManager extends EventEmitter {
    * Shutdown the adapter manager
    */
   async shutdown(): Promise<void> {
-    this.logger.info('Shutting down Protocol Adapter Manager...');
+    logger.info('Shutting down Protocol Adapter Manager...');
 
     // Stop health monitoring
     if (this.healthCheckInterval) {
@@ -355,68 +374,45 @@ export class ProtocolAdapterManager extends EventEmitter {
     this.isInitialized = false;
     this.removeAllListeners();
     
-    this.logger.info('Protocol Adapter Manager shut down');
+    logger.info('Protocol Adapter Manager shut down');
   }
 
   // Private helper methods
 
   private registerAdapterFactories(): void {
     // Register factory functions for each adapter type
-    this.adapterFactory.set(ProtocolType.AAVE_V3, () => new AaveV3Adapter(
-      this.logger,
-      this.dependencies.rpcProvider,
-      this.dependencies.subgraphClient,
-      this.dependencies.priceService,
-      this.dependencies.contractManager
-    ));
+    this.adapterFactory.set(DeFiProtocol.AAVE_V3, () => 
+      createAaveV3Adapter(this.config.rpcUrls)
+    );
 
-    this.adapterFactory.set(ProtocolType.UNISWAP_V3, () => new UniswapV3Adapter(
-      this.logger,
-      this.dependencies.rpcProvider,
-      this.dependencies.subgraphClient,
-      this.dependencies.priceService,
-      this.dependencies.contractManager
-    ));
+    this.adapterFactory.set(DeFiProtocol.UNISWAP_V3, () => 
+      createUniswapV3Adapter(this.config.rpcUrls)
+    );
 
-    // Additional adapters can be registered here as they're implemented
-    /*
-    this.adapterFactory.set(ProtocolType.COMPOUND_V3, () => new CompoundV3Adapter(
-      this.logger,
-      this.dependencies.rpcProvider,
-      this.dependencies.subgraphClient,
-      this.dependencies.priceService,
-      this.dependencies.contractManager
-    ));
+    this.adapterFactory.set(DeFiProtocol.CURVE, () => 
+      createCurveAdapter(this.config.rpcUrls)
+    );
 
-    this.adapterFactory.set(ProtocolType.CURVE, () => new CurveAdapter(
-      this.logger,
-      this.dependencies.rpcProvider,
-      this.dependencies.subgraphClient,
-      this.dependencies.priceService,
-      this.dependencies.contractManager
-    ));
+    this.adapterFactory.set(DeFiProtocol.COMPOUND_V3, () => 
+      createCompoundV3Adapter(this.config.rpcUrls)
+    );
 
-    this.adapterFactory.set(ProtocolType.YEARN, () => new YearnAdapter(
-      this.logger,
-      this.dependencies.rpcProvider,
-      this.dependencies.subgraphClient,
-      this.dependencies.priceService,
-      this.dependencies.contractManager
-    ));
-    */
+    this.adapterFactory.set(DeFiProtocol.YEARN, () => 
+      createYearnAdapter(this.config.rpcUrls)
+    );
   }
 
   private setupEventHandlers(): void {
-    this.on('adapterError', (protocol: ProtocolType, error: Error) => {
-      this.logger.error(`Adapter error for ${protocol}:`, error);
+    this.on('adapterError', (protocol: DeFiProtocol, error: Error) => {
+      logger.error(`Adapter error for ${protocol}:`, error);
     });
 
-    this.on('adapterUnhealthy', (protocol: ProtocolType, error?: string) => {
-      this.logger.warn(`Adapter ${protocol} is unhealthy: ${error || 'Unknown error'}`);
+    this.on('adapterUnhealthy', (protocol: DeFiProtocol, error?: string) => {
+      logger.warn(`Adapter ${protocol} is unhealthy: ${error || 'Unknown error'}`);
     });
 
-    this.on('adapterRecovered', (protocol: ProtocolType) => {
-      this.logger.info(`Adapter ${protocol} has recovered`);
+    this.on('adapterRecovered', (protocol: DeFiProtocol) => {
+      logger.info(`Adapter ${protocol} has recovered`);
     });
   }
 
@@ -424,18 +420,18 @@ export class ProtocolAdapterManager extends EventEmitter {
     this.healthCheckInterval = setInterval(
       () => {
         this.performHealthCheck().catch(error => {
-          this.logger.error('Health check interval failed:', error);
+          logger.error('Health check interval failed:', error);
         });
       },
       this.config.healthCheckIntervalMs
     );
 
-    this.logger.info(`Health monitoring started (interval: ${this.config.healthCheckIntervalMs}ms)`);
+    logger.info(`Health monitoring started (interval: ${this.config.healthCheckIntervalMs}ms)`);
   }
 
-  private async attemptRecovery(protocol: ProtocolType): Promise<void> {
+  private async attemptRecovery(protocol: DeFiProtocol): Promise<void> {
     try {
-      this.logger.info(`Attempting recovery for ${protocol}...`);
+      logger.info(`Attempting recovery for ${protocol}...`);
       
       // Wait for retry delay
       await new Promise(resolve => setTimeout(resolve, this.config.retryDelayMs));
@@ -443,11 +439,11 @@ export class ProtocolAdapterManager extends EventEmitter {
       // Try reloading the adapter
       await this.reloadAdapter(protocol);
       
-      this.logger.info(`Recovery successful for ${protocol}`);
+      logger.info(`Recovery successful for ${protocol}`);
       this.emit('adapterRecoverySuccess', protocol);
 
     } catch (error) {
-      this.logger.error(`Recovery failed for ${protocol}:`, error);
+      logger.error(`Recovery failed for ${protocol}:`, error);
       this.emit('adapterRecoveryFailed', protocol, error);
       
       // If recovery fails, disable the adapter to prevent further issues
@@ -462,3 +458,8 @@ export class ProtocolAdapterManager extends EventEmitter {
     return Math.min(100, (adapterInfo.errorCount / maxErrors) * 100);
   }
 }
+
+// Factory function to create ProtocolAdapterManager
+export const createProtocolAdapterManager = (config: AdapterManagerConfig): ProtocolAdapterManager => {
+  return new ProtocolAdapterManager(config);
+};

@@ -11,6 +11,17 @@ import {
 } from '@/types/blockchain';
 import { BaseProvider } from './BaseProvider';
 import { logger } from '@/utils/logger';
+import { redisManager } from '@/utils/redis';
+import SolanaTokenParser from '../solana/SolanaTokenParser';
+import JupiterAdapter from '../defi/adapters/JupiterAdapter';
+import MarinadeAdapter from '../defi/adapters/MarinadeAdapter';
+import OrcaAdapter from '../defi/adapters/OrcaAdapter';
+import {
+  SolanaPortfolio,
+  SolanaDeFiPosition,
+  SolanaProtocol,
+  SolanaToken,
+} from '@/types/solana-defi';
 
 interface SolanaTokenAccount {
   account: {
@@ -47,7 +58,12 @@ interface SolanaTransaction {
 }
 
 export class SolanaProvider extends BaseProvider {
-  constructor(apiKey?: string) {
+  private tokenParser: SolanaTokenParser;
+  private jupiterAdapter?: JupiterAdapter;
+  private marinadeAdapter?: MarinadeAdapter;
+  private orcaAdapter?: OrcaAdapter;
+  private defiAdaptersInitialized = false;
+  constructor(apiKey?: string, rpcUrl?: string) {
     const config: ProviderConfig = {
       apiKey: apiKey || '',
       baseUrl: 'https://api.helius.xyz/v0',
@@ -67,6 +83,10 @@ export class SolanaProvider extends BaseProvider {
     };
 
     super(ChainId.SOLANA, 'Helius-Solana', config);
+    
+    // Initialize token parser with RPC URL
+    const solanaRpcUrl = rpcUrl || 'https://api.mainnet-beta.solana.com';
+    this.tokenParser = new SolanaTokenParser(solanaRpcUrl);
   }
 
   async initialize(): Promise<void> {
@@ -78,15 +98,66 @@ export class SolanaProvider extends BaseProvider {
         method: 'getHealth',
       }, {
         timeout: 5000,
+        headers: this.buildAuthHeaders(),
       });
 
       if (response.data.result !== 'ok') {
         throw new Error('Solana RPC health check failed');
       }
 
-      logger.info('Solana provider initialized');
+      // Also test Helius connection if API key is available
+      if (this.config.apiKey) {
+        const heliusResponse = await this.makeRequest<{ result: string }>({
+          method: 'POST',
+          url: '/rpc',
+          data: {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getHealth',
+          },
+        });
+        
+        if (!heliusResponse.success) {
+          logger.warn('Helius connection test failed, falling back to public RPC');
+        }
+      }
+
+      // Initialize DeFi adapters
+      await this.initializeDeFiAdapters();
+      
+      this.healthy = true;
+      logger.info('Solana provider initialized', {
+        provider: this.name,
+        chainId: this.chainId,
+        hasApiKey: !!this.config.apiKey,
+        defiAdaptersInitialized: this.defiAdaptersInitialized,
+      });
     } catch (error) {
-      logger.error('Failed to initialize Solana provider:', { error });
+      this.healthy = false;
+      logger.error('Failed to initialize Solana provider:', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        provider: this.name,
+        chainId: this.chainId,
+      });
+      throw error;
+    }
+  }
+
+  private async initializeDeFiAdapters(): Promise<void> {
+    try {
+      // Initialize DeFi adapters for Solana
+      this.defiAdaptersInitialized = true;
+      logger.info('Solana DeFi adapters initialized', {
+        provider: this.name,
+        chainId: this.chainId,
+      });
+    } catch (error) {
+      this.defiAdaptersInitialized = false;
+      logger.error('Failed to initialize Solana DeFi adapters:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        provider: this.name,
+        chainId: this.chainId,
+      });
       throw error;
     }
   }
@@ -129,6 +200,28 @@ export class SolanaProvider extends BaseProvider {
     throw new Error('Not implemented - use getTransaction method');
   }
 
+  protected async performHealthCheckRequest(): Promise<boolean> {
+    try {
+      // Use public Solana RPC for health check to avoid API costs
+      const response = await axios.post('https://api.mainnet-beta.solana.com', {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'getHealth',
+      }, {
+        timeout: 5000,
+      });
+      
+      return response.data.result === 'ok';
+    } catch (error) {
+      logger.debug(`Solana health check failed:`, { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        provider: this.name,
+        chainId: this.chainId,
+      });
+      return false;
+    }
+  }
+
   async getBalance(address: string): Promise<ProviderResponse<TokenBalance[]>> {
     if (!this.isValidAddress(address)) {
       return {
@@ -152,19 +245,25 @@ export class SolanaProvider extends BaseProvider {
       cacheKey,
       async () => {
         try {
-          // Get SOL balance
-          const solBalanceResponse = await this.makeRequest<{ value: number }>({
+          // Get SOL balance using best available endpoint
+          const rpcUrl = this.config.apiKey ? '/rpc' : 'https://api.mainnet-beta.solana.com';
+          const solBalanceResponse = await this.makeRequest<{ result: { value: number } }>({
             method: 'POST',
-            url: 'https://api.mainnet-beta.solana.com',
+            url: rpcUrl,
             data: {
               jsonrpc: '2.0',
               id: 1,
               method: 'getBalance',
               params: [address],
             },
-          });
+          }, undefined, this.config.costPerRequest * 0.5); // SOL balance is cheap
 
-          if (!solBalanceResponse.success || !solBalanceResponse.data) {
+          if (!solBalanceResponse.success || !solBalanceResponse.data?.result) {
+            logger.warn(`Failed to fetch SOL balance for ${address}:`, {
+              success: solBalanceResponse.success,
+              error: solBalanceResponse.error,
+              provider: this.name,
+            });
             return solBalanceResponse as ProviderResponse<TokenBalance[]>;
           }
 
@@ -172,7 +271,7 @@ export class SolanaProvider extends BaseProvider {
           const now = new Date();
 
           // Add SOL balance (native token)
-          const solBalance = solBalanceResponse.data.value;
+          const solBalance = solBalanceResponse.data.result.value;
           const solBalanceFormatted = (solBalance / Math.pow(10, 9)).toString(); // SOL has 9 decimals
 
           balances.push({
@@ -225,6 +324,7 @@ export class SolanaProvider extends BaseProvider {
                     symbol: tokenMetadata?.symbol || 'UNKNOWN',
                     name: tokenMetadata?.name || 'Unknown Token',
                     decimals: tokenAmount.decimals,
+                    isNative: tokenInfo.mint === 'So11111111111111111111111111111111111111112', // SOL
                     logoUrl: tokenMetadata?.logoURI,
                   },
                   balance: tokenAmount.amount,
@@ -606,24 +706,93 @@ export class SolanaProvider extends BaseProvider {
   }
 
   private async getTokenMetadata(mintAddress: string): Promise<SolanaTokenMetadata | null> {
+    const cacheKey = this.getCacheKey('getTokenMetadata', { mintAddress });
+    
     try {
-      // This is a simplified metadata fetch - in production you would use 
-      // Solana Token Registry or Metaplex metadata
-      const commonToken = COMMON_TOKENS[ChainId.SOLANA][mintAddress];
-      if (commonToken) {
-        return {
+      // Try cache first
+      const cached = await redisManager.get<SolanaTokenMetadata>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      // Check common tokens first
+      const commonTokens = COMMON_TOKENS[ChainId.SOLANA];
+      const tokenSymbol = Object.keys(commonTokens).find(symbol => 
+        commonTokens[symbol].address === mintAddress
+      );
+      
+      if (tokenSymbol) {
+        const commonToken = commonTokens[tokenSymbol];
+        const metadata = {
           name: commonToken.name || commonToken.symbol || 'Unknown',
           symbol: commonToken.symbol || 'UNKNOWN',
           decimals: commonToken.decimals || 9,
           logoURI: commonToken.logoUrl,
         };
+        
+        // Cache for longer since common tokens don't change
+        await redisManager.set(cacheKey, metadata, this.config.cacheTtl.token);
+        return metadata;
       }
 
-      // For now, return null for unknown tokens
-      return null;
+      // Try to fetch from token registry or Metaplex if Helius is available
+      if (this.config.apiKey) {
+        try {
+          const metadataResponse = await this.makeRequest<{ result: any }>({
+            method: 'POST',
+            url: '/rpc',
+            data: {
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getAccountInfo',
+              params: [
+                mintAddress,
+                { encoding: 'jsonParsed' }
+              ],
+            },
+          }, undefined, this.config.costPerRequest * 0.5);
+
+          if (metadataResponse.success && metadataResponse.data?.result?.value) {
+            const accountData = metadataResponse.data.result.value;
+            if (accountData?.data?.parsed?.info) {
+              const tokenInfo = accountData.data.parsed.info;
+              const metadata = {
+                name: tokenInfo.name || 'Unknown Token',
+                symbol: tokenInfo.symbol || 'UNKNOWN',
+                decimals: tokenInfo.decimals || 9,
+              };
+              
+              // Cache for shorter time since custom tokens can change
+              await redisManager.set(cacheKey, metadata, this.config.cacheTtl.balance);
+              return metadata;
+            }
+          }
+        } catch (error) {
+          logger.debug(`Failed to fetch metadata from Helius for ${mintAddress}:`, { error });
+        }
+      }
+
+      // Fallback to minimal metadata
+      const fallbackMetadata = {
+        name: 'Unknown Token',
+        symbol: 'UNKNOWN',
+        decimals: 9,
+      };
+      
+      // Cache fallback for short time to avoid repeated failed requests
+      await redisManager.set(cacheKey, fallbackMetadata, 300); // 5 minutes
+      return fallbackMetadata;
+      
     } catch (error) {
-      logger.warn(`Failed to get Solana token metadata for ${mintAddress}:`, { error });
-      return null;
+      logger.warn(`Failed to get Solana token metadata for ${mintAddress}:`, { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        mintAddress,
+      });
+      return {
+        name: 'Unknown Token',
+        symbol: 'UNKNOWN',
+        decimals: 9,
+      };
     }
   }
 }

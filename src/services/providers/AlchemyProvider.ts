@@ -91,10 +91,20 @@ export class AlchemyProvider extends BaseProvider {
   async initialize(): Promise<void> {
     try {
       // Test connection with a simple call
-      await this.provider.getBlockNumber();
-      logger.info(`Alchemy provider initialized for chain ${this.chainId}`);
+      const blockNumber = await this.provider.getBlockNumber();
+      logger.info(`Alchemy provider initialized for chain ${this.chainId}`, {
+        blockNumber,
+        provider: this.name,
+        chainId: this.chainId,
+      });
+      this.healthy = true;
     } catch (error) {
-      logger.error(`Failed to initialize Alchemy provider for chain ${this.chainId}:`, { error });
+      this.healthy = false;
+      logger.error(`Failed to initialize Alchemy provider for chain ${this.chainId}:`, { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        provider: this.name,
+        chainId: this.chainId,
+      });
       throw error;
     }
   }
@@ -134,6 +144,20 @@ export class AlchemyProvider extends BaseProvider {
     throw new Error('Not implemented - use getTransaction method');
   }
 
+  protected async performHealthCheckRequest(): Promise<boolean> {
+    try {
+      await this.provider.getBlockNumber();
+      return true;
+    } catch (error) {
+      logger.debug(`Alchemy health check failed:`, { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        provider: this.name,
+        chainId: this.chainId,
+      });
+      return false;
+    }
+  }
+
   async getBalance(address: string): Promise<ProviderResponse<TokenBalance[]>> {
     if (!this.isValidAddress(address)) {
       return {
@@ -160,20 +184,25 @@ export class AlchemyProvider extends BaseProvider {
           // Get native balance
           const nativeBalance = await this.provider.getBalance(address);
           
-          // Get token balances
-          const tokenBalancesResponse = await this.makeRequest<AlchemyBalanceResponse>({
+          // Get token balances using Alchemy's enhanced API
+          const tokenBalancesResponse = await this.makeRequest<{ result: AlchemyBalanceResponse }>({
             method: 'POST',
             url: '',
             data: {
               id: 1,
               jsonrpc: '2.0',
               method: 'alchemy_getTokenBalances',
-              params: [address],
+              params: [address, 'erc20'],
             },
-          });
+          }, undefined, this.config.costPerRequest * 1.5); // Token balance requests cost more
 
-          if (!tokenBalancesResponse.success || !tokenBalancesResponse.data) {
-            return tokenBalancesResponse as ProviderResponse<TokenBalance[]>;
+          if (!tokenBalancesResponse.success || !tokenBalancesResponse.data?.result) {
+            logger.warn(`Failed to fetch token balances for ${address}:`, {
+              success: tokenBalancesResponse.success,
+              error: tokenBalancesResponse.error,
+              provider: this.name,
+            });
+            // Still return native balance even if token fetch fails
           }
 
           const balances: TokenBalance[] = [];
@@ -197,8 +226,9 @@ export class AlchemyProvider extends BaseProvider {
             lastUpdated: now,
           });
 
-          // Process token balances
-          for (const tokenBalance of tokenBalancesResponse.data.tokenBalances) {
+          // Process token balances if available
+          const tokenBalances = tokenBalancesResponse.data?.result?.tokenBalances || [];
+          for (const tokenBalance of tokenBalances) {
             if (tokenBalance.error || !tokenBalance.tokenBalance || tokenBalance.tokenBalance === '0x0') {
               continue;
             }
@@ -226,6 +256,7 @@ export class AlchemyProvider extends BaseProvider {
                   symbol: metadata.symbol,
                   name: metadata.name,
                   decimals: metadata.decimals,
+                  isNative: false, // ERC-20 tokens are not native
                   logoUrl: metadata.logo,
                 },
                 balance: balance.toString(),
@@ -247,7 +278,7 @@ export class AlchemyProvider extends BaseProvider {
               timestamp: Date.now(),
               requestId: tokenBalancesResponse.metadata.requestId,
               cacheTtl: this.config.cacheTtl.balance,
-              cost: this.config.costPerRequest * 2, // Native + token balances = 2 requests
+              cost: this.config.costPerRequest * (tokenBalancesResponse.success ? 2.5 : 1), // Native + enhanced token balances
             },
           };
         } catch (error) {
@@ -374,7 +405,7 @@ export class AlchemyProvider extends BaseProvider {
               chainId: this.chainId,
               timestamp: Date.now(),
               requestId: 'token_balance',
-              cost: this.config.costPerRequest * 2, // Balance + metadata
+              cost: this.config.costPerRequest * 2.5, // Balance + metadata + ERC20 call
             },
           };
         } catch (error) {
@@ -448,7 +479,7 @@ export class AlchemyProvider extends BaseProvider {
               chainId: this.chainId,
               timestamp: Date.now(),
               requestId: 'transaction',
-              cost: this.config.costPerRequest * 3, // Transaction + receipt + block
+              cost: this.config.costPerRequest * 3.5, // Transaction + receipt + block + enhanced data
             },
           };
         } catch (error) {
@@ -476,22 +507,110 @@ export class AlchemyProvider extends BaseProvider {
     address: string, 
     options: { limit?: number; offset?: number; startBlock?: number; endBlock?: number } = {}
   ): Promise<ProviderResponse<Transaction[]>> {
-    // Alchemy doesn't have a direct transaction history endpoint
-    // This would typically require using Etherscan API or similar
-    // For now, return a not implemented response
-    return {
-      success: false,
-      error: {
-        code: 'NOT_IMPLEMENTED',
-        message: 'Transaction history not implemented for Alchemy provider',
+    const { limit = 10, startBlock, endBlock } = options;
+    const cacheKey = this.getCacheKey('getTransactionHistory', { address, limit, startBlock, endBlock });
+    
+    return this.getCached(
+      cacheKey,
+      async () => {
+        try {
+          // Use Alchemy's asset transfers API for transaction history
+          const response = await this.makeRequest<{ result: { transfers: any[] } }>({
+            method: 'POST',
+            url: '',
+            data: {
+              id: 1,
+              jsonrpc: '2.0',
+              method: 'alchemy_getAssetTransfers',
+              params: [{
+                fromAddress: address,
+                toAddress: address,
+                category: ['external', 'erc20', 'erc721', 'erc1155'],
+                maxCount: limit,
+                order: 'desc',
+                ...(startBlock && { fromBlock: `0x${startBlock.toString(16)}` }),
+                ...(endBlock && { toBlock: `0x${endBlock.toString(16)}` }),
+              }],
+            },
+          }, undefined, this.config.costPerRequest * 2);
+
+          if (!response.success || !response.data?.result?.transfers) {
+            return {
+              success: false,
+              error: {
+                code: 'TRANSACTION_HISTORY_ERROR',
+                message: 'Failed to fetch transaction history from Alchemy',
+                details: response.error,
+              },
+              metadata: {
+                provider: this.name,
+                chainId: this.chainId,
+                timestamp: Date.now(),
+                requestId: 'history_error',
+              },
+            };
+          }
+
+          const transactions: Transaction[] = response.data.result.transfers.map((transfer: any) => ({
+            hash: transfer.hash,
+            chainId: this.chainId,
+            from: transfer.from,
+            to: transfer.to,
+            value: transfer.value?.toString() || '0',
+            status: 'confirmed' as const,
+            blockNumber: parseInt(transfer.blockNum, 16),
+            timestamp: new Date(), // Alchemy doesn't provide timestamp in transfers
+            tokenTransfers: transfer.asset ? [{
+              token: {
+                address: transfer.rawContract?.address || 'native',
+                chainId: this.chainId,
+                symbol: transfer.asset,
+                name: transfer.asset,
+                decimals: transfer.rawContract?.decimal || 18,
+                isNative: !transfer.rawContract?.address, // Native if no contract address
+              },
+              from: transfer.from,
+              to: transfer.to,
+              amount: transfer.rawContract?.value || transfer.value || '0',
+              amountFormatted: transfer.value?.toString() || '0',
+            }] : undefined,
+          }));
+
+          return {
+            success: true,
+            data: transactions,
+            metadata: {
+              provider: this.name,
+              chainId: this.chainId,
+              timestamp: Date.now(),
+              requestId: 'transaction_history',
+              cost: this.config.costPerRequest * 2,
+              cacheTtl: this.config.cacheTtl.transaction,
+            },
+          };
+        } catch (error) {
+          logger.error(`Failed to get transaction history for ${address}:`, { 
+            error: error instanceof Error ? error.message : 'Unknown error',
+            provider: this.name,
+            chainId: this.chainId,
+          });
+          return {
+            success: false,
+            error: {
+              code: 'TRANSACTION_HISTORY_ERROR',
+              message: error instanceof Error ? error.message : 'Unknown error',
+            },
+            metadata: {
+              provider: this.name,
+              chainId: this.chainId,
+              timestamp: Date.now(),
+              requestId: 'error',
+            },
+          };
+        }
       },
-      metadata: {
-        provider: this.name,
-        chainId: this.chainId,
-        timestamp: Date.now(),
-        requestId: 'not_implemented',
-      },
-    };
+      this.config.cacheTtl.transaction
+    );
   }
 
   private async getTokenMetadata(tokenAddress: string): Promise<ProviderResponse<AlchemyTokenMetadata>> {
@@ -500,7 +619,7 @@ export class AlchemyProvider extends BaseProvider {
     return this.getCached(
       cacheKey,
       async () => {
-        const response = await this.makeRequest<{ name: string; symbol: string; decimals: number; logo?: string }>({
+        const response = await this.makeRequest<{ result: { name: string; symbol: string; decimals: number; logo?: string } }>({
           method: 'POST',
           url: '',
           data: {
@@ -509,7 +628,7 @@ export class AlchemyProvider extends BaseProvider {
             method: 'alchemy_getTokenMetadata',
             params: [tokenAddress],
           },
-        });
+        }, undefined, this.config.costPerRequest * 0.5); // Metadata requests are cheaper
 
         if (!response.success) {
           return response as ProviderResponse<AlchemyTokenMetadata>;
@@ -517,7 +636,7 @@ export class AlchemyProvider extends BaseProvider {
 
         return {
           ...response,
-          data: response.data as AlchemyTokenMetadata,
+          data: response.data?.result as AlchemyTokenMetadata,
         };
       },
       this.config.cacheTtl.token

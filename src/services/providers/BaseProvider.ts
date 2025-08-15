@@ -1,6 +1,8 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 import { logger, logApiCall, logCost } from '@/utils/logger';
+import { recordProviderCall } from '@/utils/metrics';
 import { redisManager } from '@/utils/redis';
+import { getCostMonitoringService } from '@/services/CostMonitoringService';
 import {
   ChainProvider,
   ChainId,
@@ -106,6 +108,7 @@ export abstract class BaseProvider implements ChainProvider {
           requestId,
           statusCode: response.status,
         });
+        recordProviderCall(this.name, this.chainId as any, true, duration);
 
         logCost(this.name, response.config.url || '', this.config.costPerRequest, {
           requestId,
@@ -125,6 +128,7 @@ export abstract class BaseProvider implements ChainProvider {
           statusCode: error.response?.status,
           errorMessage: error.message,
         });
+        recordProviderCall(this.name, this.chainId as any, false, duration);
 
         // Update health status based on error type
         if (error.response?.status && error.response.status >= 500) {
@@ -152,7 +156,8 @@ export abstract class BaseProvider implements ChainProvider {
   // Protected API request method with retry logic
   protected async makeRequest<T>(
     config: AxiosRequestConfig,
-    retries: number = this.config.retries
+    retries: number = this.config.retries,
+    customCost?: number
   ): Promise<ProviderResponse<T>> {
     const requestId = `${this.name}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
@@ -164,6 +169,33 @@ export abstract class BaseProvider implements ChainProvider {
           metadata: { requestId, startTime },
         });
 
+        const responseTime = Date.now() - startTime;
+        const cost = customCost ?? this.config.costPerRequest;
+
+        // Track the cost for successful requests (decoupled from Express middleware)
+        try {
+          await getCostMonitoringService().trackAPICall(
+            this.name,
+            config.url || config.method || 'unknown',
+            cost,
+            {
+              responseTime,
+              success: true,
+              metadata: {
+                requestId,
+                statusCode: response.status,
+                chainId: this.chainId,
+                attempt,
+              },
+            }
+          );
+        } catch (e) {
+          logger.warn('Cost monitoring failed for provider request', {
+            provider: this.name,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+
         return {
           success: true,
           data: response.data as T,
@@ -172,7 +204,8 @@ export abstract class BaseProvider implements ChainProvider {
             chainId: this.chainId,
             timestamp: Date.now(),
             requestId,
-            cost: this.config.costPerRequest,
+            cost: cost,
+            cacheTtl: this.config.cacheTtl.balance,
           },
         };
       } catch (error) {
@@ -182,12 +215,41 @@ export abstract class BaseProvider implements ChainProvider {
           : this.handleProviderError(error);
 
         if (isLastAttempt || !providerError.isRetryable) {
+          const responseTime = Date.now() - startTime;
+          const cost = (customCost ?? this.config.costPerRequest) * 0.1; // Failed requests cost less
+
+          // Track the cost for failed requests (decoupled)
+          try {
+            await getCostMonitoringService().trackAPICall(
+              this.name,
+              config.url || config.method || 'unknown',
+              cost,
+              {
+                responseTime,
+                success: false,
+                metadata: {
+                  requestId,
+                  statusCode: (error as any)?.response?.status,
+                  chainId: this.chainId,
+                  attempt,
+                  errorMessage: providerError.message,
+                },
+              }
+            );
+          } catch (e) {
+            logger.warn('Cost monitoring failed for provider error', {
+              provider: this.name,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+
           logger.error(`API request failed after ${attempt} attempts:`, {
             provider: this.name,
             chainId: this.chainId,
             error: providerError.message,
             requestId,
             endpoint: config.url,
+            statusCode: error.response?.status,
           });
 
           return {
@@ -195,7 +257,12 @@ export abstract class BaseProvider implements ChainProvider {
             error: {
               code: providerError.code,
               message: providerError.message,
-              details: { attempt, totalAttempts: retries + 1 },
+              details: { 
+                attempt, 
+                totalAttempts: retries + 1,
+                statusCode: error.response?.status,
+                endpoint: config.url 
+              },
             },
             metadata: {
               provider: this.name,
@@ -212,6 +279,7 @@ export abstract class BaseProvider implements ChainProvider {
           provider: this.name,
           error: providerError.message,
           requestId,
+          statusCode: error.response?.status,
         });
 
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -277,13 +345,14 @@ export abstract class BaseProvider implements ChainProvider {
   // Health check implementation
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await this.makeRequest({
-        method: 'GET',
-        url: '/health', // Most providers have a health endpoint
-        timeout: 5000,
-      });
-
-      this.healthy = response.success;
+      // Use a simple, low-cost request for health check
+      const testResponse = await this.performHealthCheckRequest();
+      this.healthy = testResponse;
+      
+      if (!this.healthy) {
+        logger.warn(`Health check failed for ${this.name}`);
+      }
+      
       return this.healthy;
     } catch (error) {
       this.healthy = false;
@@ -291,6 +360,9 @@ export abstract class BaseProvider implements ChainProvider {
       return false;
     }
   }
+
+  // Abstract method for provider-specific health checks
+  protected abstract performHealthCheckRequest(): Promise<boolean>;
 
   // Address validation
   isValidAddress(address: string): boolean {
