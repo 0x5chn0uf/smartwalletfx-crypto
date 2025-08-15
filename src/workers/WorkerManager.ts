@@ -2,6 +2,13 @@ import { EventBusPort } from '@/ports/EventBusPort';
 import { PortfolioWorker, PortfolioWorkerConfig, createPortfolioWorker } from './portfolioWorker';
 import { DeFiOrchestrator } from '@/services/defi/DeFiOrchestrator';
 import { logger } from '@/utils/logger';
+import { 
+  updateWorkerHealth, 
+  updateQueueDepth, 
+  recordWorkerJob,
+  updateMonthlyCost,
+  updateProviderBudgetUtilization 
+} from '@/utils/metrics';
 
 /**
  * Worker Manager
@@ -52,10 +59,18 @@ export class WorkerManager {
           await workerInfo.worker.start();
           workerInfo.status = 'running';
           workerInfo.startedAt = new Date();
+          
+          // Update worker health metrics
+          updateWorkerHealth(workerInfo.name, 'default', true);
+          
           logger.info(`Worker ${workerInfo.name} started successfully`);
         } catch (error) {
           workerInfo.status = 'failed';
           workerInfo.lastError = error instanceof Error ? error.message : 'Unknown error';
+          
+          // Update worker health metrics
+          updateWorkerHealth(workerInfo.name, 'default', false);
+          
           logger.error(`Failed to start worker ${workerInfo.name}:`, {
             error: workerInfo.lastError,
           });
@@ -107,10 +122,18 @@ export class WorkerManager {
         await workerInfo.worker.stop();
         workerInfo.status = 'stopped';
         workerInfo.stoppedAt = new Date();
+        
+        // Update worker health metrics
+        updateWorkerHealth(workerInfo.name, 'default', false);
+        
         logger.info(`Worker ${workerInfo.name} stopped successfully`);
       } catch (error) {
         workerInfo.status = 'failed';
         workerInfo.lastError = error instanceof Error ? error.message : 'Unknown error';
+        
+        // Update worker health metrics
+        updateWorkerHealth(workerInfo.name, 'default', false);
+        
         logger.error(`Error stopping worker ${workerInfo.name}:`, {
           error: workerInfo.lastError,
         });
@@ -149,6 +172,19 @@ export class WorkerManager {
 
         if (isHealthy) {
           healthyWorkers++;
+        }
+        
+        // Update Prometheus metrics for worker health
+        updateWorkerHealth(workerId, 'default', isHealthy);
+        
+        // Update queue depth metrics if available from worker stats
+        if (stats && typeof stats === 'object') {
+          const waiting = (stats as any).queueLength || 0;
+          const active = (stats as any).activeJobs || 0;
+          const completed = (stats as any).completedJobs || 0;
+          const failed = (stats as any).failedJobs || 0;
+          
+          updateQueueDepth(workerInfo.name, waiting, active, completed, failed);
         }
       } catch (error) {
         workerHealthStatuses[workerId] = {
@@ -226,11 +262,17 @@ export class WorkerManager {
       workerInfo.status = 'running';
       workerInfo.startedAt = new Date();
       workerInfo.lastError = undefined;
+      
+      // Update worker health metrics
+      updateWorkerHealth(workerId, 'default', true);
 
       logger.info(`Worker ${workerId} restarted successfully`);
     } catch (error) {
       workerInfo.status = 'failed';
       workerInfo.lastError = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Update worker health metrics
+      updateWorkerHealth(workerId, 'default', false);
 
       logger.error(`Failed to restart worker ${workerId}:`, {
         error: workerInfo.lastError,

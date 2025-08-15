@@ -1,6 +1,8 @@
 import { config } from '@/config';
 import { logger, logApiCall, logCost } from '@/utils/logger';
 import { redisManager } from '@/utils/redis';
+import { MoneyUtils, MoneyDecimal } from '@/utils/money';
+import { recordProviderCall } from '@/utils/metrics';
 import {
   ChainId,
   ChainProvider,
@@ -15,6 +17,11 @@ import { AlchemyProvider } from './providers/AlchemyProvider';
 import { RpcProvider } from './providers/RpcProvider';
 import { SolanaProvider } from './providers/SolanaProvider';
 import { getPriceService } from '@/services/pricing/PriceService';
+import { 
+  ProviderConcurrencyLimiter, 
+  executeWithConcurrencyLimit,
+  getGlobalConcurrencyLimiter 
+} from '@/utils/concurrencyLimiter';
 
 interface ChainManagerConfig {
   providers: {
@@ -28,11 +35,21 @@ interface ChainManagerConfig {
     helius?: string;
   };
   fallbackEnabled: boolean;
-  maxConcurrentRequests: number;
+  maxConcurrentRequests: number; // @deprecated - will be removed in favor of per-provider limits
   costTracking: {
     enabled: boolean;
     monthlyBudget: number;
     alertThreshold: number;
+  };
+  concurrency?: {
+    enabled: boolean;
+    retryConfig?: {
+      maxAttempts: number;
+      initialDelayMs: number;
+      maxDelayMs: number;
+      backoffMultiplier: number;
+      jitterFactor: number;
+    };
   };
 }
 
@@ -41,8 +58,23 @@ export class ChainManager {
   private providerHealth: Map<ChainId, boolean> = new Map();
   private costTracker: Map<string, number> = new Map(); // provider -> monthly cost
   private requestStats: Map<string, number> = new Map(); // provider -> request count
+  private concurrencyLimiter: ProviderConcurrencyLimiter;
 
   constructor(private readonly managerConfig: ChainManagerConfig) {
+    // Initialize concurrency limiter with centralized configuration
+    const retryConfig = this.managerConfig.concurrency?.retryConfig || config.concurrency.retryConfig;
+    const defaultConcurrency = {
+      concurrency: config.concurrency.chainManagerConcurrency,
+      rateLimitPerSecond: config.concurrency.rateLimits.perSecond,
+      rateLimitPerMinute: config.concurrency.rateLimits.perMinute,
+      burstAllowance: config.concurrency.rateLimits.burstAllowance,
+    };
+    
+    this.concurrencyLimiter = new ProviderConcurrencyLimiter(
+      retryConfig,
+      defaultConcurrency
+    );
+    
     this.initializeProviders();
     this.startHealthChecking();
     this.startCostTracking();
@@ -283,6 +315,95 @@ export class ChainManager {
     }
 
     const startTime = Date.now();
+    
+    // Use concurrency limiter if enabled
+    if (this.managerConfig.concurrency?.enabled) {
+      const result = await executeWithConcurrencyLimit(
+        () => provider.getBalance(address),
+        provider.name,
+        chainId,
+        this.managerConfig.concurrency?.retryConfig
+      );
+      
+      if (result.success && result.data) {
+        // Track cost - note that ProviderResult doesn't have cost metadata
+        // This would be added by the actual provider response
+        const duration = Date.now() - startTime;
+        
+        // Use enhanced metrics with all required parameters
+        recordProviderCall(
+          provider.name,
+          chainId,
+          'getBalance',
+          true,
+          duration,
+          undefined, // no error
+          result.metadata.attempts,
+          result.metadata.cost
+        );
+        
+        logApiCall(provider.name, 'getBalance', duration, 'success', {
+          chainId,
+          address,
+          tokenCount: result.data.length,
+          attempts: result.metadata.attempts,
+          totalTime: result.metadata.totalTime,
+        });
+        
+        return {
+          success: true,
+          data: result.data,
+          metadata: {
+            provider: provider.name,
+            chainId,
+            timestamp: Date.now(),
+            requestId: 'concurrency_limited',
+            attempts: result.metadata.attempts,
+            totalTime: result.metadata.totalTime,
+          },
+        };
+      } else {
+        const duration = Date.now() - startTime;
+        
+        // Use enhanced metrics with all required parameters
+        recordProviderCall(
+          provider.name,
+          chainId,
+          'getBalance',
+          false,
+          duration,
+          result.error?.code,
+          result.metadata.attempts,
+          result.metadata.cost
+        );
+        
+        logApiCall(provider.name, 'getBalance', duration, 'error', {
+          chainId,
+          address,
+          error: result.error?.message || 'Unknown error',
+          attempts: result.metadata.attempts,
+          totalTime: result.metadata.totalTime,
+        });
+        
+        return {
+          success: false,
+          error: {
+            code: result.error?.code || 'PROVIDER_ERROR',
+            message: result.error?.message || 'Unknown error',
+          },
+          metadata: {
+            provider: provider.name,
+            chainId,
+            timestamp: Date.now(),
+            requestId: 'concurrency_limited_error',
+            attempts: result.metadata.attempts,
+            totalTime: result.metadata.totalTime,
+          },
+        };
+      }
+    }
+    
+    // Fallback to original implementation if concurrency limiting is disabled
     try {
       const result = await provider.getBalance(address);
 
@@ -350,7 +471,7 @@ export class ChainManager {
         };
       }
 
-      // Fetch balances from all chains concurrently
+      // Fetch balances from all chains with concurrency control
       const balancePromises = targetChains.map(async chainId => {
         const result = await this.getBalance(chainId, address);
         return { chainId, result };
@@ -374,8 +495,16 @@ export class ChainManager {
             successfulChains++;
             // Enrich with USD prices
             const enriched = await getPriceService().enrichBalances(chainId, result.data);
-            // Calculate chain total in USD (sum non-NaN)
-            const chainTotalUSD = enriched.reduce((sum, t) => sum + (t.balanceUSD || 0), 0);
+            
+            // Calculate chain total in USD using precise decimal arithmetic
+            const chainTotalUSD = enriched.reduce((sum, t) => {
+              if (t.balanceUSD && !isNaN(t.balanceUSD)) {
+                const currentSum = MoneyUtils.usd(sum);
+                const tokenValue = MoneyUtils.usd(t.balanceUSD);
+                return currentSum.add(tokenValue).toNumber();
+              }
+              return sum;
+            }, 0);
 
             const chainSummary: PortfolioSummary = {
               address,
@@ -389,7 +518,11 @@ export class ChainManager {
 
             chains.push(chainSummary);
             allTokens.push(...enriched);
-            totalValueUSD += chainTotalUSD;
+            
+            // Add to total using precise decimal arithmetic
+            const currentTotal = MoneyUtils.usd(totalValueUSD);
+            const chainValue = MoneyUtils.usd(chainTotalUSD);
+            totalValueUSD = currentTotal.add(chainValue).toNumber();
           }
         }
       }
@@ -397,14 +530,14 @@ export class ChainManager {
       // Calculate diversification score (simplified)
       const diversificationScore = this.calculateDiversificationScore(allTokens);
 
-      // Top tokens by USD value (fallback to balance if no USD)
+      // Top tokens by USD value (fallback to balance if no USD) using precise sorting
       const topTokens = allTokens
         .filter(t => !t.token.isNative)
-        .sort(
-          (a, b) =>
-            (b.balanceUSD ?? parseFloat(b.balanceFormatted)) -
-            (a.balanceUSD ?? parseFloat(a.balanceFormatted))
-        )
+        .sort((a, b) => {
+          const aValue = a.balanceUSD ? MoneyUtils.usd(a.balanceUSD) : MoneyUtils.crypto(parseFloat(a.balanceFormatted));
+          const bValue = b.balanceUSD ? MoneyUtils.usd(b.balanceUSD) : MoneyUtils.crypto(parseFloat(b.balanceFormatted));
+          return bValue.compare(aValue);
+        })
         .slice(0, 10);
 
       const portfolio: MultiChainPortfolio = {
@@ -472,6 +605,51 @@ export class ChainManager {
       };
     }
 
+    // Use concurrency limiter if enabled
+    if (this.managerConfig.concurrency?.enabled) {
+      const result = await executeWithConcurrencyLimit(
+        () => provider.getTransaction(hash),
+        provider.name,
+        chainId,
+        this.managerConfig.concurrency?.retryConfig
+      );
+      
+      if (result.success && result.data) {
+        // Track cost - note that ProviderResult doesn't have cost metadata
+        // This would be added by the actual provider response
+        
+        return {
+          success: true,
+          data: result.data,
+          metadata: {
+            provider: provider.name,
+            chainId,
+            timestamp: Date.now(),
+            requestId: 'concurrency_limited',
+            attempts: result.metadata.attempts,
+            totalTime: result.metadata.totalTime,
+          },
+        };
+      } else {
+        return {
+          success: false,
+          error: {
+            code: result.error?.code || 'PROVIDER_ERROR',
+            message: result.error?.message || 'Unknown error',
+          },
+          metadata: {
+            provider: provider.name,
+            chainId,
+            timestamp: Date.now(),
+            requestId: 'concurrency_limited_error',
+            attempts: result.metadata.attempts,
+            totalTime: result.metadata.totalTime,
+          },
+        };
+      }
+    }
+    
+    // Fallback to original implementation
     const result = await provider.getTransaction(hash);
 
     if (result.metadata.cost) {
@@ -546,6 +724,27 @@ export class ChainManager {
   }
 
   /**
+   * Get concurrency limit from environment variables or use default
+   */
+  private getConcurrencyFromEnv(): number {
+    const envConcurrency = process.env.CHAIN_MANAGER_CONCURRENCY;
+    if (envConcurrency) {
+      const parsed = parseInt(envConcurrency, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    return this.managerConfig.maxConcurrentRequests || 10;
+  }
+
+  /**
+   * Get concurrency limiter statistics
+   */
+  getConcurrencyStats() {
+    return this.concurrencyLimiter.getStats();
+  }
+
+  /**
    * Stop the ChainManager and cleanup resources
    * Called during graceful shutdown
    */
@@ -587,6 +786,9 @@ export class ChainManager {
 
       await Promise.allSettled(stopPromises);
 
+      // Clear concurrency limiter
+      this.concurrencyLimiter.clear();
+
       // Clear internal state
       this.providers.clear();
       this.providerHealth.clear();
@@ -615,11 +817,15 @@ export const createChainManager = (): ChainManager => {
       helius: config.apiKeys.helius,
     },
     fallbackEnabled: true,
-    maxConcurrentRequests: 10,
+    maxConcurrentRequests: parseInt(process.env.CHAIN_MANAGER_CONCURRENCY || '10', 10),
     costTracking: {
       enabled: config.costs.trackingEnabled,
       monthlyBudget: config.costs.monthlyBudget,
       alertThreshold: config.costs.alertThreshold,
+    },
+    concurrency: {
+      enabled: config.concurrency.enabled,
+      retryConfig: config.concurrency.retryConfig,
     },
   };
 
