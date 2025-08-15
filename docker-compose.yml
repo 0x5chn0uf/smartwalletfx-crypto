@@ -9,13 +9,130 @@ services:
       - "3000:3000"
       - "9090:9090"  # Metrics port
     environment:
+      # Server Configuration
       NODE_ENV: development
+      PORT: 3000
+      HOST: 0.0.0.0
+      SERVER_TIMEOUT: 30000
+      BODY_LIMIT: 10mb
+      
+      # Database Configuration
       DATABASE_URL: postgresql://smartwallet:password@postgres:5432/smartwalletfx?schema=public
+      DATABASE_POOL_SIZE: 10
+      DATABASE_TIMEOUT: 60000
+      DATABASE_SSL: false
+      
+      # Redis Configuration
       REDIS_URL: redis://redis:6379
+      REDIS_MAX_RETRIES: 3
+      REDIS_RETRY_DELAY: 1000
+      REDIS_COMMAND_TIMEOUT: 5000
+      REDIS_MAX_MEMORY: 512mb
+      REDIS_KEY_PREFIX: "smartwallet:crypto:"
+      
+      # Primary API Keys (Required)
       ALCHEMY_API_KEY: ${ALCHEMY_API_KEY}
+      
+      # Secondary API Keys (Optional)
       MORALIS_API_KEY: ${MORALIS_API_KEY}
+      QUICKNODE_API_KEY: ${QUICKNODE_API_KEY}
+      ANKR_API_KEY: ${ANKR_API_KEY}
+      HELIUS_API_KEY: ${HELIUS_API_KEY}
+      INFURA_API_KEY: ${INFURA_API_KEY}
+      
+      # NFT Marketplace APIs
+      OPENSEA_API_KEY: ${OPENSEA_API_KEY}
+      MAGIC_EDEN_API_KEY: ${MAGIC_EDEN_API_KEY}
+      RESERVOIR_API_KEY: ${RESERVOIR_API_KEY}
+      NFTGO_API_KEY: ${NFTGO_API_KEY}
+      
+      # DeFi Data Providers
+      DEFI_LLAMA_API_KEY: ${DEFI_LLAMA_API_KEY}
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY}
+      DUNE_API_KEY: ${DUNE_API_KEY}
+      THE_GRAPH_API_KEY: ${THE_GRAPH_API_KEY}
+      
+      # Blockchain RPC URLs
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:-https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}}
+      POLYGON_RPC_URL: ${POLYGON_RPC_URL}
+      ARBITRUM_RPC_URL: ${ARBITRUM_RPC_URL}
+      OPTIMISM_RPC_URL: ${OPTIMISM_RPC_URL}
+      BASE_RPC_URL: ${BASE_RPC_URL}
+      BSC_RPC_URL: ${BSC_RPC_URL}
+      AVALANCHE_RPC_URL: ${AVALANCHE_RPC_URL}
+      FANTOM_RPC_URL: ${FANTOM_RPC_URL}
+      
+      # Solana Configuration
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL}
+      SOLANA_COMMITMENT: confirmed
+      
+      # Security Configuration
       JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 24h
+      JWT_REFRESH_EXPIRES_IN: 7d
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ENCRYPTION_ALGORITHM: aes-256-gcm
+      
+      # API Keys Management
+      VALID_API_KEYS: ${VALID_API_KEYS}
+      API_KEY_RATE_LIMIT: 1000
+      
+      # Rate Limiting
+      RATE_LIMIT_WINDOW: 15
+      RATE_LIMIT_MAX: 100
+      RATE_LIMIT_SKIP_SUCCESSFUL_REQUESTS: false
+      RATE_LIMIT_STORE: redis
+      
+      # Caching
+      CACHE_TTL_SHORT: 300
+      CACHE_TTL_MEDIUM: 3600
+      CACHE_TTL_LONG: 86400
+      CACHE_TTL_STATIC: 604800
+      CACHE_COMPRESSION: true
+      
+      # CORS
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:5173
+      CORS_CREDENTIALS: true
+      CORS_MAX_AGE: 86400
+      
+      # Monitoring & Observability
+      ENABLE_METRICS: true
+      METRICS_PORT: 9090
+      METRICS_PATH: /metrics
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      LOG_FILE_ENABLED: false
+      
+      # Error Tracking
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_ENVIRONMENT: development
+      SENTRY_SAMPLE_RATE: 0.1
+      
+      # Health Checks
+      HEALTH_CHECK_TIMEOUT: 5000
+      HEALTH_CHECK_INTERVAL: 30000
+      
+      # Cost Management
+      MONTHLY_API_BUDGET: 200
+      COST_ALERT_THRESHOLD: 150
+      ENABLE_COST_TRACKING: true
+      COST_REPORTING_INTERVAL: 86400000
+      
+      # Performance
+      MAX_CONCURRENT_REQUESTS: 100
+      REQUEST_TIMEOUT: 30000
+      GRACEFUL_SHUTDOWN_TIMEOUT: 10000
+      SLOW_QUERY_THRESHOLD: 1000
+      
+      # Feature Flags
+      ENABLE_WEBSOCKETS: false
+      ENABLE_GRAPHQL: false
+      ENABLE_SWAGGER: true
+      ENABLE_CACHE_WARMING: true
+      
+      # Development/Debug
+      DEBUG_MODE: false
+      MOCK_EXTERNAL_APIS: false
     depends_on:
       postgres:
         condition: service_healthy

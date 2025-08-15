@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist-api",
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": [
+    "src/index.ts",
+    "src/app.ts",
+    "src/config/**/*.ts",
+    "src/middleware/**/*.ts",
+    "src/routes/**/*.ts",
+    "src/services/providers/**/*.ts",
+    "src/services/ChainManager.ts",
+    "src/utils/logger.ts",
+    "src/utils/redis.ts",
+    "src/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "src/models/**",
+    "src/services/**/!(providers)/**"
+  ]
+}
+

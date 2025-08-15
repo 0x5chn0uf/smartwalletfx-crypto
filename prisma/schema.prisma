@@ -1,0 +1,771 @@
+// Prisma schema file for SmartWalletFX Crypto Data Service
+// This file defines the database schema for portfolio management,
+// DeFi positions, NFT collections, and transaction tracking
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "fullTextIndex"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// CORE ENTITIES
+// ============================================================================
+
+// User Wallets - Track user wallet addresses across different chains
+model UserWallet {
+  id        String   @id @default(cuid())
+  address   String   // Wallet address
+  chainId   String   // Chain identifier (supports both numeric and string IDs like 'solana')
+  name      String?  // Optional name for the wallet
+  isActive  Boolean  @default(true)
+  isDeleted Boolean  @default(false) // Soft deletion
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastSyncAt DateTime?
+  
+  // Relationships
+  portfolios      Portfolio[]
+  defiPositions   DeFiPosition[]
+  nftTokens       NFTToken[]
+  transactions    Transaction[]
+  tokenBalances   TokenBalance[]
+  
+  // Indexes
+  @@unique([address, chainId])
+  @@index([address])
+  @@index([chainId])
+  @@index([isActive, isDeleted])
+  @@index([lastSyncAt])
+  @@map("user_wallets")
+}
+
+// Tokens - Master token registry across all chains
+model Token {
+  id          String  @id @default(cuid())
+  address     String  // Token contract address
+  chainId     String  // Chain identifier
+  symbol      String  // Token symbol (e.g., "ETH", "USDC")
+  name        String  // Token name (e.g., "Ethereum", "USD Coin")
+  decimals    Int     // Token decimals
+  logoUrl     String? // Token logo URL
+  coingeckoId String? // CoinGecko ID for price data
+  isNative    Boolean @default(false) // Is this a native token (ETH, SOL, etc.)
+  isStable    Boolean @default(false) // Is this a stablecoin
+  isActive    Boolean @default(true)
+  isDeleted   Boolean @default(false)
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relationships
+  tokenBalances     TokenBalance[]
+  priceCache        PriceCache[]
+  defiTokens        DeFiToken[]
+  transactionTokens TransactionToken[]
+  nftCollections    NFTCollection[] // For NFT collection tokens
+  
+  // Indexes
+  @@unique([address, chainId])
+  @@index([symbol])
+  @@index([chainId])
+  @@index([isActive, isDeleted])
+  @@index([coingeckoId])
+  // @@fulltext([name, symbol]) // Removed - not supported by PostgreSQL
+  @@map("tokens")
+}
+
+// Token Balances - Current token balances for wallets
+model TokenBalance {
+  id               String   @id @default(cuid())
+  walletId         String
+  tokenId          String
+  balance          String   // Raw balance as string (supports large numbers)
+  balanceFormatted String   // Human-readable formatted balance
+  balanceUSD       Decimal? @db.Decimal(20, 8) // USD value
+  priceUSD         Decimal? @db.Decimal(20, 8) // Price per token in USD
+  change24h        Decimal? @db.Decimal(10, 4) // 24h price change percentage
+  blockNumber      BigInt?  // Block number when balance was fetched
+  isDeleted        Boolean  @default(false) // Soft deletion
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastUpdated DateTime @default(now())
+  
+  // Relationships
+  wallet UserWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  token  Token      @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@unique([walletId, tokenId])
+  @@index([walletId])
+  @@index([tokenId])
+  @@index([lastUpdated])
+  @@index([balanceUSD])
+  @@map("token_balances")
+}
+
+// Price Cache - Cache token prices to reduce API calls
+model PriceCache {
+  id        String   @id @default(cuid())
+  tokenId   String
+  priceUSD  Decimal  @db.Decimal(20, 8)
+  change24h Decimal? @db.Decimal(10, 4)
+  change7d  Decimal? @db.Decimal(10, 4)
+  change30d Decimal? @db.Decimal(10, 4)
+  volume24h Decimal? @db.Decimal(20, 8)
+  marketCap Decimal? @db.Decimal(20, 8)
+  source    String   // Price data source (coingecko, dexscreener, etc.)
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime // Cache expiration time
+  
+  // Relationships
+  token Token @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@unique([tokenId, source])
+  @@index([tokenId])
+  @@index([expiresAt])
+  @@index([source])
+  @@map("price_cache")
+}
+
+// ============================================================================
+// PORTFOLIO MANAGEMENT
+// ============================================================================
+
+// Portfolio - Aggregated portfolio data for wallets
+model Portfolio {
+  id                   String  @id @default(cuid())
+  walletId             String
+  chainId              String  // Chain this portfolio is for
+  totalValueUSD        Decimal @db.Decimal(20, 8)
+  tokenCount           Int     @default(0)
+  diversificationScore Decimal @db.Decimal(5, 2) // 0-100 diversification score
+  isDeleted            Boolean @default(false) // Soft deletion
+  
+  // Performance metrics
+  value24hAgo    Decimal? @db.Decimal(20, 8)
+  value7dAgo     Decimal? @db.Decimal(20, 8)
+  value30dAgo    Decimal? @db.Decimal(20, 8)
+  change24hUSD   Decimal? @db.Decimal(20, 8)
+  change7dUSD    Decimal? @db.Decimal(20, 8)
+  change30dUSD   Decimal? @db.Decimal(20, 8)
+  change24hPct   Decimal? @db.Decimal(10, 4)
+  change7dPct    Decimal? @db.Decimal(10, 4)
+  change30dPct   Decimal? @db.Decimal(10, 4)
+  
+  // Metadata
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lastSyncAt   DateTime @default(now())
+  cacheKey     String?  // Cache key for portfolio data
+  fetchTimeMs  Int?     // Time taken to fetch portfolio data
+  cacheHitRate Decimal? @db.Decimal(5, 4) // Cache hit rate for this portfolio
+  
+  // Relationships
+  wallet UserWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@unique([walletId, chainId])
+  @@index([walletId])
+  @@index([chainId])
+  @@index([totalValueUSD])
+  @@index([lastSyncAt])
+  @@map("portfolios")
+}
+
+// ============================================================================
+// DEFI POSITIONS
+// ============================================================================
+
+// DeFi Tokens - Tokens used in DeFi positions
+model DeFiToken {
+  id       String @id @default(cuid())
+  tokenId  String
+  isStable Boolean @default(false)
+  
+  // Relationships
+  token            Token             @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  suppliedPositions DeFiSuppliedToken[]
+  borrowedPositions DeFiBorrowedToken[]
+  collateralPositions DeFiCollateralToken[]
+  rewardPositions  DeFiRewardToken[]
+  
+  @@unique([tokenId])
+  @@map("defi_tokens")
+}
+
+// DeFi Positions - Core DeFi position data
+model DeFiPosition {
+  id          String @id @default(cuid())
+  walletId    String
+  protocol    String // DeFi protocol (aave-v3, uniswap-v3, etc.)
+  chainId     String
+  type        String // lending, borrowing, liquidity_pool, staking, etc.
+  status      String // active, inactive, at_risk, liquidated, closed
+  
+  // Position details
+  name         String
+  description  String?
+  url          String? // Protocol URL
+  positionId   String? // Protocol-specific position ID
+  
+  // Financial metrics
+  totalValueUSD Decimal @db.Decimal(20, 8)
+  netValueUSD   Decimal @db.Decimal(20, 8) // Total supplied - total borrowed
+  
+  // Risk metrics
+  healthFactor        Decimal? @db.Decimal(10, 6) // Lending protocols health factor
+  liquidationPrice    Decimal? @db.Decimal(20, 8) // Liquidation price
+  liquidationRisk     String   @default("low") // low, medium, high, critical
+  collateralRatio     Decimal? @db.Decimal(10, 6) // Collateral ratio
+  utilizationRate     Decimal? @db.Decimal(10, 6) // Utilization rate (0-1)
+  timeToLiquidation   Int?     // Seconds until liquidation risk
+  impermanentLoss     Decimal? @db.Decimal(10, 6) // For LP positions
+  
+  // Protocol-specific data (JSON)
+  protocolData Json @default("{}")
+  
+  // Metadata
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastUpdatedAt  DateTime @default(now())
+  lastActivityAt DateTime?
+  
+  // Relationships
+  wallet           UserWallet            @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  suppliedTokens   DeFiSuppliedToken[]
+  borrowedTokens   DeFiBorrowedToken[]
+  collateralTokens DeFiCollateralToken[]
+  rewards          DeFiRewardToken[]
+  yieldInfo        DeFiYieldInfo[]
+  
+  // Indexes
+  @@index([walletId])
+  @@index([protocol])
+  @@index([chainId])
+  @@index([type])
+  @@index([status])
+  @@index([totalValueUSD])
+  @@index([liquidationRisk])
+  @@index([lastUpdatedAt])
+  // @@fulltext([name, description]) // Removed - not supported by PostgreSQL
+  @@map("defi_positions")
+}
+
+// DeFi Supplied Tokens
+model DeFiSuppliedToken {
+  id               String @id @default(cuid())
+  positionId       String
+  defiTokenId      String
+  amount           String // Raw amount as string
+  amountFormatted  String // Human-readable amount
+  valueUSD         Decimal? @db.Decimal(20, 8)
+  
+  // Relationships
+  position  DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  defiToken DeFiToken    @relation(fields: [defiTokenId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([defiTokenId])
+  @@map("defi_supplied_tokens")
+}
+
+// DeFi Borrowed Tokens
+model DeFiBorrowedToken {
+  id               String @id @default(cuid())
+  positionId       String
+  defiTokenId      String
+  amount           String // Raw amount as string
+  amountFormatted  String // Human-readable amount
+  valueUSD         Decimal? @db.Decimal(20, 8)
+  
+  // Relationships
+  position  DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  defiToken DeFiToken    @relation(fields: [defiTokenId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([defiTokenId])
+  @@map("defi_borrowed_tokens")
+}
+
+// DeFi Collateral Tokens
+model DeFiCollateralToken {
+  id               String  @id @default(cuid())
+  positionId       String
+  defiTokenId      String
+  amount           String  // Raw amount as string
+  amountFormatted  String  // Human-readable amount
+  valueUSD         Decimal? @db.Decimal(20, 8)
+  isCollateral     Boolean @default(true)
+  
+  // Relationships
+  position  DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  defiToken DeFiToken    @relation(fields: [defiTokenId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([defiTokenId])
+  @@map("defi_collateral_tokens")
+}
+
+// DeFi Reward Tokens
+model DeFiRewardToken {
+  id               String   @id @default(cuid())
+  positionId       String
+  defiTokenId      String
+  amount           String   // Raw amount as string
+  amountFormatted  String   // Human-readable amount
+  valueUSD         Decimal? @db.Decimal(20, 8)
+  apy              Decimal? @db.Decimal(10, 6) // Reward APY
+  
+  // Vesting information
+  isVesting        Boolean  @default(false)
+  vestingPeriod    Int?     // Vesting period in seconds
+  claimableAt      DateTime?
+  
+  // Relationships
+  position  DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  defiToken DeFiToken    @relation(fields: [defiTokenId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([defiTokenId])
+  @@index([claimableAt])
+  @@map("defi_reward_tokens")
+}
+
+// DeFi Yield Information
+model DeFiYieldInfo {
+  id            String  @id @default(cuid())
+  positionId    String
+  apy           Decimal @db.Decimal(10, 6) // Annual Percentage Yield
+  apr           Decimal @db.Decimal(10, 6) // Annual Percentage Rate
+  dailyRate     Decimal? @db.Decimal(10, 8) // Daily rate
+  source        String  // lending, farming, staking, fees, rewards
+  isCompounding Boolean @default(false)
+  calculatedAt  DateTime @default(now())
+  
+  // Relationships
+  position DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([source])
+  @@index([calculatedAt])
+  @@map("defi_yield_info")
+}
+
+// ============================================================================
+// NFT COLLECTIONS AND TOKENS
+// ============================================================================
+
+// NFT Collections
+model NFTCollection {
+  id              String  @id @default(cuid())
+  chainId         String  // Chain identifier
+  contractAddress String  // NFT contract address
+  standard        String  // erc-721, erc-1155, spl-token, metaplex
+  
+  // Basic information
+  name         String
+  symbol       String
+  description  String?
+  slug         String  // URL-friendly slug
+  
+  // Visual assets
+  image         String? // Collection image
+  bannerImage   String? // Banner image
+  featuredImage String? // Featured image
+  
+  // Collection metadata
+  category    String  @default("unknown") // art, collectibles, gaming, etc.
+  verified    Boolean @default(false)
+  isActive    Boolean @default(true)
+  isDeleted   Boolean @default(false)
+  
+  // Statistics
+  totalSupply     Int      @default(0)
+  ownersCount     Int      @default(0)
+  listedCount     Int      @default(0)
+  floorPriceUSD   Decimal? @db.Decimal(20, 8)
+  volumeTotalUSD  Decimal? @db.Decimal(20, 8)
+  volume24hUSD    Decimal? @db.Decimal(20, 8)
+  volume7dUSD     Decimal? @db.Decimal(20, 8)
+  volume30dUSD    Decimal? @db.Decimal(20, 8)
+  marketCapUSD    Decimal? @db.Decimal(20, 8)
+  averagePriceUSD Decimal? @db.Decimal(20, 8)
+  salesCount24h   Int      @default(0)
+  salesCount7d    Int      @default(0)
+  salesCount30d   Int      @default(0)
+  
+  // Creator information
+  creatorAddress   String?
+  creatorEarnings  Decimal? @db.Decimal(5, 4) // Royalty percentage
+  
+  // Social links (JSON)
+  socialLinks Json @default("{}")
+  
+  // Additional metadata (JSON)
+  metadata Json @default("{}")
+  
+  // External integration
+  tokenId String? // If collection has a token
+  
+  // Metadata
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastUpdatedAt DateTime @default(now())
+  
+  // Relationships
+  token     Token?     @relation(fields: [tokenId], references: [id])
+  nftTokens NFTToken[]
+  listings  NFTListing[]
+  
+  // Indexes
+  @@unique([chainId, contractAddress])
+  @@index([chainId])
+  @@index([contractAddress])
+  @@index([slug])
+  @@index([category])
+  @@index([verified])
+  @@index([floorPriceUSD])
+  @@index([volume24hUSD])
+  @@index([isActive, isDeleted])
+  // @@fulltext([name, symbol, description]) // Removed - not supported by PostgreSQL
+  @@map("nft_collections")
+}
+
+// NFT Tokens
+model NFTToken {
+  id              String @id @default(cuid())
+  walletId        String
+  collectionId    String
+  chainId         String
+  contractAddress String
+  tokenId         String // NFT token ID
+  standard        String // erc-721, erc-1155, spl-token, metaplex
+  
+  // Ownership
+  owner String // Current owner address
+  
+  // Metadata
+  name         String
+  description  String?
+  image        String? // NFT image URL
+  imageHighRes String? // High resolution image
+  animationUrl String? // Animation/video URL
+  externalUrl  String? // External URL
+  tokenUri     String? // Token URI
+  
+  // Attributes (JSON array)
+  attributes Json @default("[]")
+  
+  // Market data
+  lastSalePriceUSD    Decimal? @db.Decimal(20, 8)
+  floorPriceUSD       Decimal? @db.Decimal(20, 8)
+  estimatedValueUSD   Decimal? @db.Decimal(20, 8)
+  listingPriceUSD     Decimal? @db.Decimal(20, 8)
+  isListed            Boolean  @default(false)
+  
+  // Rarity and analytics
+  rarityRank  Int?     // Rank within collection
+  rarityScore Decimal? @db.Decimal(10, 4) // Rarity score
+  rarityTier  String?  // common, uncommon, rare, epic, legendary, mythic
+  
+  // Status
+  isActive  Boolean @default(true)
+  isDeleted Boolean @default(false)
+  
+  // Additional metadata (JSON)
+  metadata Json @default("{}")
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  lastUpdatedAt     DateTime @default(now())
+  lastTransferredAt DateTime?
+  
+  // Relationships
+  wallet     UserWallet    @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  collection NFTCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  ownership  NFTOwnership[]
+  listings   NFTListing[]
+  
+  // Indexes
+  @@unique([chainId, contractAddress, tokenId])
+  @@index([walletId])
+  @@index([collectionId])
+  @@index([chainId])
+  @@index([contractAddress])
+  @@index([tokenId])
+  @@index([owner])
+  @@index([isListed])
+  @@index([rarityRank])
+  @@index([lastSalePriceUSD])
+  @@index([isActive, isDeleted])
+  @@index([lastTransferredAt])
+  // @@fulltext([name, description]) // Removed - not supported by PostgreSQL
+  @@map("nft_tokens")
+}
+
+// NFT Ownership History
+model NFTOwnership {
+  id              String @id @default(cuid())
+  nftTokenId      String
+  owner           String // Owner address
+  acquiredAt      DateTime
+  acquiredPriceUSD Decimal? @db.Decimal(20, 8)
+  transferType    String // mint, purchase, transfer, airdrop
+  transactionHash String
+  blockNumber     BigInt
+  
+  // Relationships
+  nftToken NFTToken @relation(fields: [nftTokenId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@index([nftTokenId])
+  @@index([owner])
+  @@index([acquiredAt])
+  @@index([transferType])
+  @@index([transactionHash])
+  @@map("nft_ownership")
+}
+
+// NFT Listings
+model NFTListing {
+  id               String @id @default(cuid())
+  nftTokenId       String?
+  collectionId     String?
+  chainId          String
+  marketplace      String // opensea, magic-eden, blur, etc.
+  
+  // NFT details (for listings without token record)
+  contractAddress String
+  tokenId         String
+  
+  // Listing details
+  seller      String // Seller address
+  priceUSD    Decimal  @db.Decimal(20, 8)
+  currency    String   // ETH, SOL, USDC, etc.
+  startTime   DateTime
+  endTime     DateTime?
+  listingType String   // fixed-price, auction, dutch-auction
+  
+  // Status
+  status String @default("active") // active, sold, cancelled, expired
+  
+  // External data
+  externalUrl String? // Marketplace URL
+  
+  // Metadata
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastUpdatedAt DateTime @default(now())
+  
+  // Relationships
+  nftToken   NFTToken?     @relation(fields: [nftTokenId], references: [id])
+  collection NFTCollection? @relation(fields: [collectionId], references: [id])
+  
+  // Indexes
+  @@index([nftTokenId])
+  @@index([collectionId])
+  @@index([chainId])
+  @@index([marketplace])
+  @@index([contractAddress, tokenId])
+  @@index([seller])
+  @@index([status])
+  @@index([priceUSD])
+  @@index([startTime, endTime])
+  @@map("nft_listings")
+}
+
+// ============================================================================
+// TRANSACTIONS
+// ============================================================================
+
+// Transactions
+model Transaction {
+  id              String @id @default(cuid())
+  walletId        String
+  hash            String // Transaction hash
+  chainId         String
+  
+  // Transaction details
+  from        String
+  to          String?
+  value       String  // Value in native currency (as string)
+  valueUSD    Decimal? @db.Decimal(20, 8)
+  gasPrice    String? // Gas price (as string)
+  gasUsed     String? // Gas used (as string)
+  gasLimit    String? // Gas limit (as string)
+  gasFeeUSD   Decimal? @db.Decimal(20, 8)
+  status      String  // pending, confirmed, failed
+  blockNumber BigInt?
+  blockHash   String?
+  timestamp   DateTime
+  
+  // Transaction type classification
+  type         String? // transfer, swap, mint, contract_interaction, etc.
+  category     String? // defi, nft, token_transfer, etc.
+  
+  // Additional metadata (JSON)
+  metadata Json @default("{}")
+  
+  // Status tracking
+  isProcessed Boolean @default(false)
+  isActive    Boolean @default(true)
+  isDeleted   Boolean @default(false)
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relationships
+  wallet         UserWallet         @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  tokenTransfers TransactionToken[]
+  
+  // Indexes
+  @@unique([hash, chainId])
+  @@index([walletId])
+  @@index([hash])
+  @@index([chainId])
+  @@index([from])
+  @@index([to])
+  @@index([status])
+  @@index([timestamp])
+  @@index([blockNumber])
+  @@index([type])
+  @@index([category])
+  @@index([isProcessed])
+  @@index([isActive, isDeleted])
+  @@map("transactions")
+}
+
+// Transaction Token Transfers
+model TransactionToken {
+  id               String @id @default(cuid())
+  transactionId    String
+  tokenId          String
+  from             String
+  to               String
+  amount           String  // Raw amount as string
+  amountFormatted  String  // Human-readable amount
+  amountUSD        Decimal? @db.Decimal(20, 8)
+  logIndex         Int?    // Log index in transaction
+  
+  // Relationships
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  token       Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@index([transactionId])
+  @@index([tokenId])
+  @@index([from])
+  @@index([to])
+  @@index([amountUSD])
+  @@map("transaction_tokens")
+}
+
+// ============================================================================
+// ANALYTICS AND CACHING
+// ============================================================================
+
+// Analytics Events - Track user interactions and system events
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  eventType String   // portfolio_sync, defi_update, nft_scan, etc.
+  walletId  String?
+  chainId   String?
+  
+  // Event data (JSON)
+  eventData Json @default("{}")
+  
+  // Performance metrics
+  duration    Int?     // Duration in milliseconds
+  success     Boolean  @default(true)
+  errorCode   String?
+  errorMessage String?
+  
+  // Context
+  userAgent   String?
+  ipAddress   String?
+  sessionId   String?
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  
+  // Indexes
+  @@index([eventType])
+  @@index([walletId])
+  @@index([chainId])
+  @@index([createdAt])
+  @@index([success])
+  @@map("analytics_events")
+}
+
+// Cache Metadata - Track cache performance and invalidation
+model CacheMetadata {
+  id        String   @id @default(cuid())
+  cacheKey  String   @unique
+  category  String   // portfolio, defi, nft, price, etc.
+  walletId  String?
+  chainId   String?
+  
+  // Cache metrics
+  hitCount     Int      @default(0)
+  missCount    Int      @default(0)
+  size         Int?     // Size in bytes
+  lastHit      DateTime?
+  lastMiss     DateTime?
+  
+  // Lifecycle
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime
+  
+  // Indexes
+  @@index([category])
+  @@index([walletId])
+  @@index([chainId])
+  @@index([expiresAt])
+  @@index([lastHit])
+  @@map("cache_metadata")
+}
+
+// System Health - Track system performance and health
+model SystemHealth {
+  id        String   @id @default(cuid())
+  component String   // database, redis, alchemy, etc.
+  status    String   // healthy, degraded, unhealthy
+  
+  // Metrics
+  responseTime  Int?     // Response time in milliseconds
+  errorRate     Decimal? @db.Decimal(5, 4) // Error rate (0-1)
+  uptime        Decimal? @db.Decimal(5, 4) // Uptime percentage (0-1)
+  
+  // Additional data (JSON)
+  metadata Json @default("{}")
+  
+  // Issues
+  issues Json @default("[]") // Array of current issues
+  
+  // Metadata
+  createdAt      DateTime @default(now())
+  lastCheckedAt  DateTime @default(now())
+  
+  // Indexes
+  @@unique([component])
+  @@index([status])
+  @@index([lastCheckedAt])
+  @@map("system_health")
+}
