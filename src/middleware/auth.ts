@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { config } from '@/config/environment';
+import { config } from '@/config';
 import { logger } from '@/utils/logger';
 import { UnauthorizedError } from '@/middleware/errorHandler';
 
@@ -37,7 +37,7 @@ export const authMiddleware = async (
 
     // Verify JWT token
     const decoded = jwt.verify(token, config.security.jwtSecret) as JWTPayload;
-    
+
     // Add user info to request
     req.user = decoded;
 
@@ -118,22 +118,21 @@ export const requireRole = (roles: string[]) => {
 // API key authentication (alternative to JWT)
 export const apiKeyAuth = (req: Request, res: Response, next: NextFunction): void => {
   const apiKey = req.headers['x-api-key'] as string;
-  
+
   if (!apiKey) {
     throw new UnauthorizedError('API key required');
   }
 
-  // In production, this would validate against a database
-  // For now, we'll use a simple environment variable check
-  const validApiKeys = process.env.VALID_API_KEYS?.split(',') || [];
-  
+  // Validate against centrally-validated config
+  const validApiKeys = config.security.validApiKeys || [];
+
   if (!validApiKeys.includes(apiKey)) {
     logger.warn('Invalid API key used', {
       apiKey: apiKey.substring(0, 8) + '...',
       ip: req.ip,
       userAgent: req.get('user-agent'),
     });
-    
+
     throw new UnauthorizedError('Invalid API key');
   }
 

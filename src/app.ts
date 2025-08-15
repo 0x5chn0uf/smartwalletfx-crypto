@@ -1,153 +1,356 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
-import { config } from '@/config/environment';
+import { registry, httpDuration } from '@/utils/metrics';
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
+import { v4 as uuidv4 } from 'uuid';
+import { config } from '@/config';
 import { logger } from '@/utils/logger';
 import { redisManager } from '@/utils/redis';
-import { chainManager } from '@/services/ChainManager';
+import { getChainManager } from '@/services/ChainManager';
+import { getCostMonitoringService } from '@/services/CostMonitoringService';
 import { requestLogger } from '@/middleware/requestLogger';
 import { errorHandler } from '@/middleware/errorHandler';
-import { authMiddleware, optionalAuthMiddleware } from '@/middleware/auth';
-import { portfolioRouter } from '@/controllers/portfolio';
-import { defiRouter } from '@/controllers/defi';
-import { defiOrchestrator } from '@/services/defi/DeFiOrchestrator';
+import { costTrackingMiddleware } from '@/middleware/costTrackingMiddleware';
+import { apiKeyAuth } from '@/middleware/auth';
+import { createRedisRateLimiter } from '@/middleware/redisRateLimiter';
+
+// Import route handlers
+import healthRoutes from '@/routes/health';
+import defiRoutes from '@/routes/defi';
+import nftRoutes from '@/routes/nft';
+import portfolioRoutes from '@/routes/portfolio';
+import protocolRoutes from '@/routes/protocols';
+import solanaRoutes from '@/routes/solana';
 
 const app = express();
 
-// Trust proxy (for deployment behind load balancers)
+// Trust proxy for deployments behind load balancers
 app.set('trust proxy', 1);
+
+// Request ID middleware (must be first)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  req.requestId = (req.headers['x-request-id'] as string) || uuidv4();
+  res.setHeader('X-Request-ID', req.requestId);
+  next();
+});
 
 // Security middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: false, // Disable CSP for API
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
 }));
+
+// CORS pre-check to send consistent 403 JSON for disallowed origins
+const isOriginAllowed = (origin?: string | null): boolean => {
+  if (!origin) return true; // Allow non-browser / same-origin
+  if (config.cors.origins.includes('*')) return true;
+  if (config.cors.origins.includes(origin)) return true;
+  if (config.server.isDevelopment && /^http:\/\/localhost:\d+$/.test(origin)) return true;
+  return false;
+};
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = req.headers.origin as string | undefined;
+  if (!isOriginAllowed(origin)) {
+    logger.warn('Blocked by CORS', { origin, path: req.path, requestId: req.requestId });
+    return res.status(403).json({
+      success: false,
+      error: {
+        code: 'CORS_NOT_ALLOWED',
+        message: 'CORS origin not allowed',
+      },
+      metadata: {
+        timestamp: new Date().toISOString(),
+        requestId: req.requestId,
+      },
+    });
+  }
+  return next();
+});
 
 // CORS configuration
 app.use(cors({
-  origin: config.cors.origins.length > 0 ? config.cors.origins : true,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Request-ID'],
-  exposedHeaders: ['X-Request-ID', 'X-RateLimit-Limit', 'X-RateLimit-Remaining'],
+  // After pre-check, reflect request origin
+  origin: true,
+  credentials: config.cors.credentials,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-API-Key', 
+    'X-Request-ID',
+    'X-Client-Version',
+    'X-Platform',
+  ],
+  exposedHeaders: [
+    'X-Request-ID', 
+    'X-RateLimit-Limit', 
+    'X-RateLimit-Remaining',
+    'X-RateLimit-Reset',
+    'X-Cost-Used',
+    'X-Cache-Status',
+  ],
+  maxAge: config.cors.maxAge,
 }));
 
-// Request parsing
-app.use(compression());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Request parsing and compression
+app.use(compression({
+  level: 6,
+  threshold: 1024,
+  filter: (req, res) => {
+    // Don't compress responses for SSE endpoints
+    if (req.headers['accept'] === 'text/event-stream') {
+      return false;
+    }
+    return compression.filter(req, res);
+  },
+}));
 
-// Rate limiting
-const rateLimiter = rateLimit({
-  windowMs: config.rateLimit.window * 60 * 1000, // window in minutes
-  max: config.rateLimit.max,
-  message: {
-    error: {
-      code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests from this IP, please try again later.',
-    },
+app.use(express.json({ 
+  limit: config.server.bodyLimit,
+  verify: (req, res, buf) => {
+    // Store raw body for webhook verification if needed
+    (req as any).rawBody = buf;
   },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Use user ID if authenticated, otherwise use IP
-    return req.user?.userId || req.ip;
-  },
-  skip: (req) => {
-    // Skip rate limiting for health checks
-    return req.path === '/health' || req.path === '/api/health';
-  },
+}));
+
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: config.server.bodyLimit,
+}));
+
+// Redis-backed rate limiting using rate-limiter-flexible
+const generalLimiter = createRedisRateLimiter({
+  points: config.rateLimit.max,
+  duration: config.rateLimit.window * 60, // seconds
+  keyPrefix: 'rl:general',
+});
+const expensiveLimiter = createRedisRateLimiter({
+  points: 20,
+  duration: 60,
+  keyPrefix: 'rl:expensive',
 });
 
-app.use(rateLimiter);
-
-// Request logging
-app.use(requestLogger);
-
-// Health check endpoint (no auth required)
-app.get('/health', async (req, res) => {
-  try {
-    // Check Redis connection
-    const redisHealth = await redisManager.ping();
-    
-    // Check chain providers health
-    const chainHealth = chainManager.getHealthStatus();
-    
-    // Check DeFi orchestrator health
-    const defiHealth = defiOrchestrator.getHealthStatus();
-    
-    // Get service stats
-    const uptime = process.uptime();
-    const memory = process.memoryUsage();
-    
-    const healthData = {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      version: '1.0.0',
-      uptime: Math.floor(uptime),
-      services: {
-        redis: redisHealth ? 'healthy' : 'unhealthy',
-        chains: {
-          status: chainHealth.healthPercentage > 50 ? 'healthy' : 'degraded',
-          healthyProviders: chainHealth.healthyProviders,
-          totalProviders: chainHealth.totalProviders,
-          healthPercentage: chainHealth.healthPercentage,
-        },
-        defi: {
-          status: Object.values(defiHealth).filter(h => h.isHealthy).length > 0 ? 'healthy' : 'degraded',
-          healthyProtocols: Object.values(defiHealth).filter(h => h.isHealthy).length,
-          totalProtocols: Object.keys(defiHealth).length,
-        },
-      },
-      system: {
-        memory: {
-          used: Math.round(memory.heapUsed / 1024 / 1024),
-          total: Math.round(memory.heapTotal / 1024 / 1024),
-          external: Math.round(memory.external / 1024 / 1024),
-        },
-        uptime: Math.floor(uptime),
-        nodeVersion: process.version,
-        platform: process.platform,
-      },
-    };
-    
-    // Return 503 if critical services are down
-    const isHealthy = redisHealth && chainHealth.healthyProviders > 0;
-    const statusCode = isHealthy ? 200 : 503;
-    
-    res.status(statusCode).json(healthData);
-  } catch (error) {
-    logger.error('Health check failed:', { error });
-    res.status(503).json({
-      status: 'unhealthy',
-      timestamp: new Date().toISOString(),
-      error: error instanceof Error ? error.message : 'Health check failed',
-    });
+// Apply limiter before auth to protect from brute-force
+app.use('/api', (req, res, next) => {
+  // Skip for health/metrics/internal
+  if (
+    req.path === '/health' ||
+    req.path === '/api/health' ||
+    req.path.startsWith('/metrics') ||
+    req.headers['x-internal-request'] === 'true'
+  ) {
+    return next();
   }
+  return generalLimiter(req, res, next);
 });
+app.use(['/api/portfolio', '/api/defi', '/api/nft'], expensiveLimiter);
 
-// API routes with authentication
-app.use('/api/portfolio', optionalAuthMiddleware, portfolioRouter);
-app.use('/api/defi', optionalAuthMiddleware, defiRouter);
+// Request logging and cost tracking
+app.use(requestLogger);
+app.use(costTrackingMiddleware);
 
-// Additional API endpoints for service management
-app.get('/api/stats', authMiddleware, async (req, res) => {
+// Swagger documentation setup
+if (config.features.swagger) {
+  const swaggerOptions = {
+    definition: {
+      openapi: '3.0.0',
+      info: {
+        title: 'SmartWalletFX Crypto Data API',
+        version: '1.0.0',
+        description: 'High-performance cryptocurrency portfolio and DeFi data API',
+        contact: {
+          name: 'SmartWalletFX Team',
+          url: 'https://smartwalletfx.com',
+          email: 'api-support@smartwalletfx.com',
+        },
+        license: {
+          name: 'MIT',
+          url: 'https://opensource.org/licenses/MIT',
+        },
+      },
+      servers: [
+        {
+          url: config.server.isDevelopment 
+            ? `http://localhost:${config.server.port}`
+            : 'https://api.smartwalletfx.com',
+          description: config.server.isDevelopment ? 'Development server' : 'Production server',
+        },
+      ],
+      // Default security: require API key unless a route overrides it with security: []
+      security: [
+        { ApiKeyAuth: [] },
+      ],
+      components: {
+        securitySchemes: {
+          ApiKeyAuth: {
+            type: 'apiKey',
+            in: 'header',
+            name: 'X-API-Key',
+          },
+          BearerAuth: {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+          },
+        },
+        responses: {
+          BadRequest: {
+            description: 'Bad request - invalid parameters',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: false },
+                    error: {
+                      type: 'object',
+                      properties: {
+                        code: { type: 'string' },
+                        message: { type: 'string' },
+                        details: { type: 'object' },
+                      },
+                    },
+                    metadata: {
+                      type: 'object',
+                      properties: {
+                        timestamp: { type: 'string', format: 'date-time' },
+                        requestId: { type: 'string' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          Unauthorized: {
+            description: 'Unauthorized - invalid or missing API key',
+          },
+          RateLimit: {
+            description: 'Rate limit exceeded',
+          },
+          InternalError: {
+            description: 'Internal server error',
+          },
+        },
+      },
+      tags: [
+        {
+          name: 'Health',
+          description: 'Service health and status endpoints',
+        },
+        {
+          name: 'DeFi',
+          description: 'DeFi protocol position and data endpoints',
+        },
+        {
+          name: 'NFT',
+          description: 'NFT collection and portfolio endpoints',
+        },
+        {
+          name: 'Portfolio',
+          description: 'Aggregated portfolio data endpoints',
+        },
+        {
+          name: 'Protocols',
+          description: 'Available protocol and service information',
+        },
+      ],
+    },
+    apis: ['./src/routes/*.ts'], // Path to the API files
+  };
+
+  const specs = swaggerJsdoc(swaggerOptions);
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'SmartWalletFX Crypto Data API',
+    swaggerOptions: {
+      persistAuthorization: true,
+      displayRequestDuration: true,
+      filter: true,
+      tryItOutEnabled: true,
+    },
+  }));
+
+  // JSON spec endpoint
+  app.get('/api-docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(specs);
+  });
+
+  logger.info('Swagger documentation available at /api-docs');
+}
+
+// API route handlers
+app.use('/health', healthRoutes);
+app.use('/api/health', healthRoutes);
+// Enforce API key authentication for all other /api routes
+app.use('/api', apiKeyAuth);
+app.use('/api/defi', defiRoutes);
+app.use('/api/nft', nftRoutes);
+app.use('/api/portfolio', portfolioRoutes);
+app.use('/api/protocols', protocolRoutes);
+app.use('/api/solana', solanaRoutes);
+
+// Service statistics endpoint (authenticated)
+app.get('/api/stats', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const healthStatus = chainManager.getHealthStatus();
-    const costStats = chainManager.getCostStatistics();
+    // Check for API key or internal request
+    const apiKey = req.headers['x-api-key'];
+    const isInternal = req.headers['x-internal-request'] === 'true';
     
+    if (!apiKey && !isInternal) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'API key required for stats endpoint',
+        },
+      });
+    }
+
+    const healthStatus = getChainManager().getHealthStatus();
+    const costStats = getCostMonitoringService().getCurrentStats();
+    const redisInfo = await redisManager.ping();
+
     res.json({
       success: true,
       data: {
-        health: healthStatus,
-        costs: costStats,
-        system: {
-          uptime: process.uptime(),
-          memory: process.memoryUsage(),
+        service: {
+          name: 'crypto-data-service',
           version: '1.0.0',
+          uptime: process.uptime(),
           nodeVersion: process.version,
+          environment: config.server.nodeEnv,
+        },
+        health: {
+          status: healthStatus.healthyProviders > 0 ? 'healthy' : 'degraded',
+          providers: healthStatus,
+          redis: redisInfo ? 'connected' : 'disconnected',
+        },
+        costs: costStats,
+        performance: {
+          memory: {
+            used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+            total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+            external: Math.round(process.memoryUsage().external / 1024 / 1024),
+          },
+          uptime: Math.floor(process.uptime()),
         },
       },
       metadata: {
@@ -156,68 +359,105 @@ app.get('/api/stats', authMiddleware, async (req, res) => {
       },
     });
   } catch (error) {
-    logger.error('Failed to get service stats:', { error });
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'STATS_ERROR',
-        message: 'Failed to retrieve service statistics',
-      },
-    });
+    next(error);
   }
 });
 
-// Metrics endpoint (Prometheus-style metrics)
-app.get('/metrics', async (req, res) => {
+// Per-request timing middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const end = httpDuration.startTimer();
+  res.on('finish', () => {
+    const route = (req as any).route?.path || req.path || 'unknown';
+    end({ method: req.method, route, status_code: String(res.statusCode) });
+  });
+  next();
+});
+
+app.get('/metrics', async (req: Request, res: Response) => {
   try {
-    const healthStatus = chainManager.getHealthStatus();
-    const costStats = chainManager.getCostStatistics();
-    const memory = process.memoryUsage();
-    
-    const metrics = [
-      '# HELP crypto_data_service_uptime_seconds Total uptime in seconds',
-      '# TYPE crypto_data_service_uptime_seconds counter',
-      `crypto_data_service_uptime_seconds ${process.uptime()}`,
-      '',
-      '# HELP crypto_data_service_memory_bytes Memory usage in bytes',
-      '# TYPE crypto_data_service_memory_bytes gauge',
-      `crypto_data_service_memory_bytes{type="heap_used"} ${memory.heapUsed}`,
-      `crypto_data_service_memory_bytes{type="heap_total"} ${memory.heapTotal}`,
-      `crypto_data_service_memory_bytes{type="external"} ${memory.external}`,
-      '',
-      '# HELP crypto_data_providers_healthy Number of healthy providers',
-      '# TYPE crypto_data_providers_healthy gauge',
-      `crypto_data_providers_healthy ${healthStatus.healthyProviders}`,
-      '',
-      '# HELP crypto_data_providers_total Total number of providers',
-      '# TYPE crypto_data_providers_total gauge',
-      `crypto_data_providers_total ${healthStatus.totalProviders}`,
-      '',
-      '# HELP crypto_data_api_requests_total Total API requests',
-      '# TYPE crypto_data_api_requests_total counter',
-      `crypto_data_api_requests_total ${costStats.totalRequests}`,
-      '',
-      '# HELP crypto_data_api_cost_usd_total Total API costs in USD',
-      '# TYPE crypto_data_api_cost_usd_total counter',
-      `crypto_data_api_cost_usd_total ${costStats.totalCost}`,
-      '',
-    ].join('\n');
-    
-    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-    res.send(metrics);
+    // Restrict metrics in production: require API key or internal header
+    const isInternal = req.headers['x-internal-request'] === 'true';
+    const apiKey = req.headers['x-api-key'] as string | undefined;
+
+    if (config.server.isProduction && !isInternal) {
+      const validApiKeys = config.security.validApiKeys || [];
+      if (!apiKey || !validApiKeys.includes(apiKey)) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Metrics endpoint requires API key in production',
+          },
+          metadata: {
+            timestamp: new Date().toISOString(),
+            requestId: req.requestId,
+          },
+        });
+      }
+    }
+
+    res.set('Content-Type', registry.contentType);
+    res.send(await registry.metrics());
   } catch (error) {
-    logger.error('Failed to generate metrics:', { error });
-    res.status(500).send('# Error generating metrics');
+    logger.error('Failed to generate metrics:', error);
+    res.status(500).set('Content-Type', 'text/plain').send('# Error generating metrics\n');
   }
 });
 
-// 404 handler
-app.use('*', (req, res) => {
+// Root endpoint
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      name: 'SmartWalletFX Crypto Data API',
+      version: '1.0.0',
+      description: 'High-performance cryptocurrency portfolio and DeFi data API',
+      status: 'operational',
+      endpoints: {
+        health: '/health',
+        apiDocs: config.features.swagger ? '/api-docs' : null,
+        metrics: '/metrics',
+      },
+      supportedChains: Object.keys(config.chains).filter(
+        (chain) => config.chains[chain as keyof typeof config.chains].enabled
+      ),
+    },
+    metadata: {
+      timestamp: new Date().toISOString(),
+      requestId: req.requestId,
+    },
+  });
+});
+
+// 404 handler for API routes
+app.use('/api/*', (req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    error: {
+      code: 'ENDPOINT_NOT_FOUND',
+      message: `API endpoint ${req.method} ${req.originalUrl} not found`,
+      availableEndpoints: [
+        '/api/health',
+        '/api/defi/:address',
+        '/api/nft/:address',
+        '/api/portfolio/:address',
+        '/api/protocols',
+      ],
+    },
+    metadata: {
+      timestamp: new Date().toISOString(),
+      requestId: req.requestId,
+    },
+  });
+});
+
+// Generic 404 handler
+app.use('*', (req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     error: {
       code: 'NOT_FOUND',
-      message: `Endpoint ${req.method} ${req.originalUrl} not found`,
+      message: `Resource ${req.method} ${req.originalUrl} not found`,
     },
     metadata: {
       timestamp: new Date().toISOString(),

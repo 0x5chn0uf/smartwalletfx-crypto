@@ -22,12 +22,12 @@ export class AppError extends Error implements ApiError {
     details?: any
   ) {
     super(message);
-    
+
     this.statusCode = statusCode;
     this.code = code;
     this.isOperational = isOperational;
     this.details = details;
-    
+
     Error.captureStackTrace(this, this.constructor);
   }
 }
@@ -148,12 +148,8 @@ export const asyncHandler = (
 
 // Check if error is retryable
 const isRetryableError = (error: ApiError): boolean => {
-  const retryableCodes = [
-    'EXTERNAL_API_ERROR',
-    'BLOCKCHAIN_ERROR',
-    'RATE_LIMIT_EXCEEDED',
-  ];
-  
+  const retryableCodes = ['EXTERNAL_API_ERROR', 'BLOCKCHAIN_ERROR', 'RATE_LIMIT_EXCEEDED'];
+
   return retryableCodes.includes(error.code || '');
 };
 

@@ -24,7 +24,7 @@ declare global {
 
 export const requestLogger = (req: Request, res: Response, next: NextFunction): void => {
   const startTime = Date.now();
-  const requestId = req.headers['x-request-id'] as string || generateRequestId();
+  const requestId = (req.headers['x-request-id'] as string) || generateRequestId();
 
   // Add request context to request object
   req.startTime = startTime;
@@ -47,7 +47,7 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
     headers: {
       'content-type': req.get('content-type'),
       'content-length': req.get('content-length'),
-      'authorization': req.get('authorization') ? 'Bearer ***' : undefined,
+      authorization: req.get('authorization') ? 'Bearer ***' : undefined,
       'x-api-key': req.get('x-api-key') ? '***' : undefined,
     },
     query: Object.keys(req.query).length > 0 ? req.query : undefined,
@@ -61,7 +61,7 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
   let responseSent = false;
 
   // Override res.send to capture response
-  res.send = function(body) {
+  res.send = function (body) {
     if (!responseSent) {
       responseBody = body;
       logResponse();
@@ -70,8 +70,8 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
     return originalSend.call(this, body);
   };
 
-  // Override res.json to capture response  
-  res.json = function(body) {
+  // Override res.json to capture response
+  res.json = function (body) {
     if (!responseSent) {
       responseBody = body;
       logResponse();
@@ -99,7 +99,7 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
     }
 
     // Prepare response log data
-    const responseLogData = {
+    const responseLogData: any = {
       ...req.logContext,
       response: {
         statusCode,
@@ -119,13 +119,11 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
     // Add response body for errors (truncated)
     if (statusCode >= 400 && responseBody) {
       try {
-        const bodyStr = typeof responseBody === 'string' 
-          ? responseBody 
-          : JSON.stringify(responseBody);
-        
-        responseLogData.response.body = bodyStr.length > 1000 
-          ? bodyStr.substring(0, 1000) + '...[truncated]'
-          : bodyStr;
+        const bodyStr =
+          typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody);
+
+        responseLogData.response.body =
+          bodyStr.length > 1000 ? bodyStr.substring(0, 1000) + '...[truncated]' : bodyStr;
       } catch (error) {
         responseLogData.response.body = '[Unable to serialize response body]';
       }
