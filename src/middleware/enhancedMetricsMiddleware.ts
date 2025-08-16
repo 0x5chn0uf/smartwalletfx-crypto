@@ -5,6 +5,7 @@ import { getEnhancedEventMonitoringService } from '@/services/EnhancedEventMonit
 import { getCacheWarmingIntegrationService } from '@/services/CacheWarmingIntegrationService';
 import { getCostMonitoringService } from '@/services/CostMonitoringService';
 import { getPerformanceTrackingSystem } from '@/services/PerformanceTrackingSystem';
+import type { HealthCheckResult } from '@/middleware/interfaces';
 
 /**
  * Enhanced Metrics Middleware
@@ -17,54 +18,7 @@ import { getPerformanceTrackingSystem } from '@/services/PerformanceTrackingSyst
  * - Cache warming performance tracking
  */
 
-interface HealthCheckResult {
-  status: 'healthy' | 'warning' | 'critical' | 'emergency';
-  timestamp: number;
-  version: string;
-  uptime: number;
-  environment: string;
-  services: {
-    eventMonitoring: any;
-    cacheWarming: any;
-    costMonitoring: any;
-    performanceTracking: any;
-  };
-  metrics: {
-    requests: {
-      total: number;
-      perSecond: number;
-      errorRate: number;
-    };
-    performance: {
-      responseTimeP95: number;
-      memoryUsage: number;
-      cpuUsage: number;
-    };
-    cost: {
-      hourlySpend: number;
-      projectedDaily: number;
-      savingsRate: number;
-      budgetUtilization: number;
-    };
-    events: {
-      publishRate: number;
-      consumeRate: number;
-      queueDepth: number;
-      errorRate: number;
-    };
-    cache: {
-      hitRate: number;
-      warmingSuccessRate: number;
-      evictionRate: number;
-    };
-  };
-  alerts: {
-    critical: number;
-    warning: number;
-    total: number;
-    recent: any[];
-  };
-}
+// HealthCheckResult moved to '@/types/monitoring'
 
 export class EnhancedMetricsMiddleware {
   private contextLogger = createContextualLogger({ component: 'EnhancedMetricsMiddleware' });

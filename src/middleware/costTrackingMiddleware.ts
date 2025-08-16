@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { logger, logError, createContextualLogger } from '@/utils/logger';
 import { getCostMonitoringService, CostRecord } from '@/services/CostMonitoringService';
 import { config } from '@/config';
+import type { CostTrackingContext } from '@/middleware/interfaces';
 
 /**
  * Cost Tracking Middleware
@@ -13,21 +14,12 @@ import { config } from '@/config';
  * - Response time tracking
  */
 
-interface CostTrackingContext {
-  startTime: number;
-  provider?: string;
-  endpoint?: string;
-  operationType?: string;
-  estimatedCost?: number;
-  metadata?: Record<string, any>;
-}
+// CostTrackingContext moved to '@/types/cost-monitoring'
 
 // Extend Express Request to include cost tracking
 declare global {
   namespace Express {
-    interface Request {
-      costTracking?: CostTrackingContext;
-    }
+    interface Request { costTracking?: CostTrackingContext }
   }
 }
 

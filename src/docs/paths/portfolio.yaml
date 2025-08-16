@@ -1,0 +1,144 @@
+paths:
+  /api/portfolio/{address}:
+    get:
+      tags: [Portfolio]
+      summary: Get aggregated portfolio
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+          description: Wallet address (0x...)
+        - in: query
+          name: chains
+          schema:
+            type: string
+          description: Comma-separated chains (ethereum,polygon,arbitrum,optimism,base,bsc,avalanche,solana)
+        - in: query
+          name: includeDefi
+          schema:
+            type: boolean
+          description: Include DeFi data (default true)
+        - in: query
+          name: includeNfts
+          schema:
+            type: boolean
+          description: Include NFT data (default true)
+        - in: query
+          name: includeMetadata
+          schema:
+            type: boolean
+          description: Include token/NFT metadata (default true)
+        - in: query
+          name: includeAnalytics
+          schema:
+            type: boolean
+          description: Include analytics breakdowns (default false)
+        - in: query
+          name: forceRefresh
+          schema:
+            type: boolean
+          description: Force bypass cache and recompute
+        - in: query
+          name: minDefiValue
+          schema:
+            type: number
+          description: Minimum USD value to include DeFi positions
+        - in: query
+          name: minNftValue
+          schema:
+            type: number
+          description: Minimum USD value to include NFTs
+      responses:
+        '200':
+          description: Aggregated portfolio data
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimit'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/portfolio/{address}/summary:
+    get:
+      tags: [Portfolio]
+      summary: Get portfolio summary only
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: chains
+          schema:
+            type: string
+          description: Comma-separated chains
+      responses:
+        '200':
+          description: Portfolio summary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/portfolio/status/{requestId}:
+    get:
+      tags: [Portfolio]
+      summary: Check async portfolio status
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Current status information
+        '202':
+          description: Still processing
+        '400':
+          description: Invalid request ID
+        '404':
+          description: Request not found
+
+  /api/portfolio/result/{requestId}:
+    get:
+      tags: [Portfolio]
+      summary: Get async portfolio result
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Completed result
+        '202':
+          description: Not ready yet
+        '404':
+          description: Request not found
+        '410':
+          description: Result expired
+
+  /api/portfolio/stats:
+    get:
+      tags: [Portfolio]
+      summary: Async portfolio service stats
+      responses:
+        '200':
+          description: Stats
+        '401':
+          $ref: '#/components/responses/Unauthorized'

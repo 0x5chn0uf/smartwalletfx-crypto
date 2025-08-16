@@ -1,4 +1,4 @@
-import { EventBusPort, EventHandler } from '@/app/ports/EventBusPort';
+import { EventBusPort, IntegrationEvent, createIntegrationEvent } from '@/ports/EventBusPort';
 import {
   PortfolioAggregationRequestV1,
   PortfolioAggregationCompletedV1,
