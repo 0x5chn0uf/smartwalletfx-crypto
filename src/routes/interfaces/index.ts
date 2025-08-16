@@ -10,4 +10,3 @@ export interface RouteFactoryConfig {
   enableCaching?: boolean;
   enableValidation?: boolean;
 }
-

@@ -34,7 +34,12 @@ export interface HealthCheckResult {
   metrics: {
     requests: { total: number; perSecond: number; errorRate: number };
     performance: { responseTimeP95: number; memoryUsage: number; cpuUsage: number };
-    cost: { hourlySpend: number; projectedDaily: number; savingsRate: number; budgetUtilization: number };
+    cost: {
+      hourlySpend: number;
+      projectedDaily: number;
+      savingsRate: number;
+      budgetUtilization: number;
+    };
     events: { publishRate: number; consumeRate: number; queueDepth: number; errorRate: number };
     cache: { hitRate: number; warmingSuccessRate: number; evictionRate: number };
   };
@@ -65,4 +70,3 @@ export interface CostTrackingContext {
   estimatedCost?: number;
   metadata?: Record<string, any>;
 }
-

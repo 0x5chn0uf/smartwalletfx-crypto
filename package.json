@@ -47,6 +47,7 @@
     "monitoring:setup": "chmod +x monitoring/setup-monitoring.sh && ./monitoring/setup-monitoring.sh",
     "monitoring:teardown": "kubectl delete namespace monitoring --ignore-not-found=true",
     "production:check": "tsx scripts/production-readiness-check.ts",
+    "docs:validate": "node scripts/validate-openapi.js",
     "prepare": "husky install",
     "typecheck:api": "tsc -p tsconfig.api.json --noEmit",
     "build:api": "tsc -p tsconfig.api.json && tsc-alias -p tsconfig.api.json"
