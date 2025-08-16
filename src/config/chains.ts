@@ -6,6 +6,7 @@
  */
 
 import { ChainId } from '@/types/blockchain';
+import type { SensitiveSecrets } from './env/validation';
 
 /**
  * Chain configuration interface
@@ -366,6 +367,105 @@ export const UNIFIED_CHAIN_CONFIGS: Record<ChainId, ChainConfig> = {
     },
   },
 };
+
+/**
+ * Build runtime chains config for application config (slug-keyed map)
+ * Consolidated here to avoid duplication across config/env.
+ */
+export function buildChainsConfig(secrets: SensitiveSecrets) {
+  return {
+    ethereum: {
+      id: 1,
+      name: 'Ethereum',
+      symbol: 'ETH',
+      rpcUrl: secrets.ethereumRpcUrl,
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      blockTime: 12000,
+      gasMultiplier: 1.1,
+      enabled: !!secrets.ethereumRpcUrl,
+    },
+    polygon: {
+      id: 137,
+      name: 'Polygon',
+      symbol: 'MATIC',
+      rpcUrl: secrets.polygonRpcUrl,
+      nativeCurrency: { name: 'Matic', symbol: 'MATIC', decimals: 18 },
+      blockTime: 2000,
+      gasMultiplier: 1.2,
+      enabled: !!secrets.polygonRpcUrl,
+    },
+    arbitrum: {
+      id: 42161,
+      name: 'Arbitrum One',
+      symbol: 'ARB',
+      rpcUrl: secrets.arbitrumRpcUrl,
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      blockTime: 1000,
+      gasMultiplier: 1.05,
+      enabled: !!secrets.arbitrumRpcUrl,
+    },
+    optimism: {
+      id: 10,
+      name: 'Optimism',
+      symbol: 'OP',
+      rpcUrl: secrets.optimismRpcUrl,
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      blockTime: 2000,
+      gasMultiplier: 1.1,
+      enabled: !!secrets.optimismRpcUrl,
+    },
+    base: {
+      id: 8453,
+      name: 'Base',
+      symbol: 'ETH',
+      rpcUrl: secrets.baseRpcUrl,
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      blockTime: 2000,
+      gasMultiplier: 1.1,
+      enabled: !!secrets.baseRpcUrl,
+    },
+    bsc: {
+      id: 56,
+      name: 'BNB Smart Chain',
+      symbol: 'BNB',
+      rpcUrl: secrets.bscRpcUrl,
+      nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+      blockTime: 3000,
+      gasMultiplier: 1.15,
+      enabled: !!secrets.bscRpcUrl,
+    },
+    avalanche: {
+      id: 43114,
+      name: 'Avalanche',
+      symbol: 'AVAX',
+      rpcUrl: secrets.avalancheRpcUrl,
+      nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
+      blockTime: 2000,
+      gasMultiplier: 1.2,
+      enabled: !!secrets.avalancheRpcUrl,
+    },
+    fantom: {
+      id: 250,
+      name: 'Fantom',
+      symbol: 'FTM',
+      rpcUrl: secrets.fantomRpcUrl,
+      nativeCurrency: { name: 'FTM', symbol: 'FTM', decimals: 18 },
+      blockTime: 1000,
+      gasMultiplier: 1.2,
+      enabled: !!secrets.fantomRpcUrl,
+    },
+    solana: {
+      id: 'solana',
+      name: 'Solana',
+      symbol: 'SOL',
+      rpcUrl: secrets.solanaRpcUrl,
+      nativeCurrency: { name: 'Solana', symbol: 'SOL', decimals: 9 },
+      blockTime: 400,
+      gasMultiplier: 1.0,
+      enabled: !!secrets.solanaRpcUrl,
+    },
+  } as const;
+}
 
 /**
  * Get all enabled chains

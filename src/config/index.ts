@@ -1,5 +1,5 @@
 import { env, parseCommaSeparated, loadSensitiveSecrets, SensitiveSecrets } from './env/validation';
-import { buildChainsConfig } from './env/chains';
+import { buildChainsConfig } from './chains';
 
 export const initializeConfig = async () => {
   const loadedSecrets = await loadSensitiveSecrets();
