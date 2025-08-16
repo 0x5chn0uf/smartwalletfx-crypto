@@ -1,5 +1,4 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
 import { logger } from '@/utils/logger';
 import { ChainId } from '@/types/blockchain';
 import { DeFiProtocol } from '@/types/defi';
@@ -9,69 +8,15 @@ import { ServiceDeps as ServiceDependencies } from '@/app/runtime';
 import { ErrorCode } from '@/utils/errorCatalog';
 import { ResponseBuilder } from '@/utils/responseBuilder';
 import { DeFiUseCase } from '@/app/usecases/DeFiUseCase';
+import type { DeFiQueryOptions } from './interfaces/defi';
 
 // Validation schemas
-const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum address');
-
-const chainIdSchema = z
-  .enum(['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc', 'avalanche'])
-  .transform(chain => {
-    const chainMap = {
-      ethereum: ChainId.ETHEREUM,
-      polygon: ChainId.POLYGON,
-      arbitrum: ChainId.ARBITRUM,
-      optimism: ChainId.OPTIMISM,
-      base: ChainId.BASE,
-      bsc: ChainId.BSC,
-      avalanche: ChainId.AVALANCHE,
-    };
-    return chainMap[chain];
-  });
-
-const protocolSchema = z
-  .enum(['aave-v3', 'compound-v3', 'uniswap-v3', 'curve', 'yearn', 'lido'])
-  .transform(protocol => {
-    const protocolMap = {
-      'aave-v3': DeFiProtocol.AAVE_V3,
-      'compound-v3': DeFiProtocol.COMPOUND_V3,
-      'uniswap-v3': DeFiProtocol.UNISWAP_V3,
-      curve: DeFiProtocol.CURVE,
-      yearn: DeFiProtocol.YEARN,
-      lido: DeFiProtocol.LIDO,
-    };
-    return protocolMap[protocol];
-  });
-
-const defiQuerySchema = z.object({
-  chains: z
-    .string()
-    .optional()
-    .transform(val => (val ? val.split(',').map(c => chainIdSchema.parse(c.trim())) : undefined)),
-  protocols: z
-    .string()
-    .optional()
-    .transform(val => (val ? val.split(',').map(p => protocolSchema.parse(p.trim())) : undefined)),
-  includeInactive: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  includeYield: z
-    .string()
-    .optional()
-    .transform(val => val !== 'false'),
-  includeRisk: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  minValue: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseFloat(val) : 0.01)),
-  forceRefresh: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-});
+import {
+  addressSchema,
+  chainIdSchema,
+  protocolSchema,
+  defiQuerySchema,
+} from '@/routes/schema/defi';
 
 class DeFiRouteFactory extends BaseRouteFactory {
   private readonly usecase: DeFiUseCase;
@@ -121,7 +66,7 @@ class DeFiRouteFactory extends BaseRouteFactory {
       }
 
       const address = addressResult.data;
-      const options = queryResult.data;
+      const options: DeFiQueryOptions = queryResult.data as any;
 
       logger.info('DeFi portfolio request', this.logRequest(req, { address, options }));
 
@@ -214,7 +159,7 @@ class DeFiRouteFactory extends BaseRouteFactory {
 
       const address = addressResult.data;
       const protocol = protocolResult.data;
-      const options = queryResult.data;
+      const options: DeFiQueryOptions = queryResult.data as any;
 
       logger.info(
         'Protocol positions request',

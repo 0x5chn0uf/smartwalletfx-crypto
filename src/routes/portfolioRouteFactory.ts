@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { addressSchema, chainIdSchema, portfolioQuerySchema } from '@/routes/schema/portfolio';
 import { logger } from '@/utils/logger';
 import { ChainId } from '@/types/blockchain';
 import { config } from '@/config';
@@ -7,60 +8,9 @@ import { redisManager } from '@/utils/redis';
 import { BaseRouteFactory, RouteFactory } from './routeFactory';
 import { ServiceDeps as ServiceDependencies } from '@/app/runtime';
 import { PortfolioUseCase } from '@/app/usecases/PortfolioUseCase';
+import type { PortfolioQueryOptions } from './interfaces/portfolio';
 
-// Validation schemas
-const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum address');
-
-const chainIdSchema = z
-  .enum(['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc', 'avalanche', 'solana'])
-  .transform(chain => {
-    const chainMap = {
-      ethereum: ChainId.ETHEREUM,
-      polygon: ChainId.POLYGON,
-      arbitrum: ChainId.ARBITRUM,
-      optimism: ChainId.OPTIMISM,
-      base: ChainId.BASE,
-      bsc: ChainId.BSC,
-      avalanche: ChainId.AVALANCHE,
-      solana: ChainId.SOLANA,
-    };
-    return chainMap[chain];
-  });
-
-const portfolioQuerySchema = z.object({
-  chains: z
-    .string()
-    .optional()
-    .transform(val => (val ? val.split(',').map(c => chainIdSchema.parse(c.trim())) : undefined)),
-  includeDefi: z
-    .string()
-    .optional()
-    .transform(val => val !== 'false'),
-  includeNfts: z
-    .string()
-    .optional()
-    .transform(val => val !== 'false'),
-  includeMetadata: z
-    .string()
-    .optional()
-    .transform(val => val !== 'false'),
-  includeAnalytics: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  forceRefresh: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  minDefiValue: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseFloat(val) : 0.01)),
-  minNftValue: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseFloat(val) : undefined)),
-});
+// Validation schemas moved to '@/routes/schema/portfolio'
 
 class PortfolioRouteFactory extends BaseRouteFactory {
   private readonly usecase: PortfolioUseCase;
@@ -115,7 +65,7 @@ class PortfolioRouteFactory extends BaseRouteFactory {
       }
 
       const address = addressResult.data;
-      const options = queryResult.data;
+      const options: PortfolioQueryOptions = queryResult.data as any;
 
       logger.info('Portfolio aggregation request', this.logRequest(req, { address, options }));
 

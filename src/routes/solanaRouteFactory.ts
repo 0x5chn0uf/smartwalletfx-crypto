@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import * as solSchemas from '@/routes/schema/solana';
 import { logger } from '@/utils/logger';
 import { BaseRouteFactory } from './routeFactory';
 import type { RouteFactory } from './interfaces';
@@ -9,66 +10,11 @@ import { ErrorCode } from '@/utils/errorCatalog';
 import { ResponseBuilder } from '@/utils/responseBuilder';
 import { SolanaProtocol } from '@/types/solana-defi';
 
-// Validation schemas
-const solanaAddressSchema = z
-  .string()
-  .min(32)
-  .max(44)
-  .regex(/^[1-9A-HJ-NP-Za-km-z]+$/, 'Invalid Solana address format');
-
-const evmAddressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid EVM address format');
-
-const solanaProtocolSchema = z
-  .enum(['raydium', 'orca', 'serum', 'mango', 'solend', 'kamino', 'meteora'])
-  .transform(protocol => {
-    const protocolMap = {
-      raydium: SolanaProtocol.RAYDIUM,
-      orca: SolanaProtocol.ORCA,
-      serum: SolanaProtocol.SERUM,
-      mango: SolanaProtocol.MANGO,
-      solend: SolanaProtocol.SOLEND,
-      kamino: SolanaProtocol.KAMINO,
-      meteora: SolanaProtocol.METEORA,
-    };
-    return protocolMap[protocol];
-  });
-
-const solanaQuerySchema = z.object({
-  protocols: z
-    .string()
-    .optional()
-    .transform(val =>
-      val ? val.split(',').map(p => solanaProtocolSchema.parse(p.trim())) : undefined
-    ),
-  includeInactive: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  includeYield: z
-    .string()
-    .optional()
-    .transform(val => val !== 'false'),
-  includeRisk: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  includeAnalytics: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  minValue: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseFloat(val) : 0.01)),
-  forceRefresh: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-});
+// Validation schemas moved to '@/routes/schema/solana'
 
 const crossChainSchema = z.object({
-  solanaAddress: solanaAddressSchema,
-  evmAddresses: z.array(evmAddressSchema),
+  solanaAddress: solSchemas.solanaAddressSchema,
+  evmAddresses: z.array(solSchemas.evmAddressSchema),
 });
 
 class SolanaRouteFactory extends BaseRouteFactory {
@@ -97,7 +43,7 @@ class SolanaRouteFactory extends BaseRouteFactory {
 
     try {
       // Validate address parameter
-      const addressResult = solanaAddressSchema.safeParse(req.params.address);
+      const addressResult = solSchemas.solanaAddressSchema.safeParse(req.params.address);
       if (!addressResult.success) {
         return res
           .status(400)
@@ -110,7 +56,7 @@ class SolanaRouteFactory extends BaseRouteFactory {
       }
 
       // Validate query parameters
-      const queryResult = solanaQuerySchema.safeParse(req.query);
+      const queryResult = solSchemas.solanaQuerySchema.safeParse(req.query);
       if (!queryResult.success) {
         return res
           .status(400)
@@ -186,7 +132,7 @@ class SolanaRouteFactory extends BaseRouteFactory {
     const responseBuilder = new ResponseBuilder(req.requestId);
 
     try {
-      const addressResult = solanaAddressSchema.safeParse(req.params.address);
+      const addressResult = solSchemas.solanaAddressSchema.safeParse(req.params.address);
       if (!addressResult.success) {
         return res
           .status(400)
@@ -198,7 +144,7 @@ class SolanaRouteFactory extends BaseRouteFactory {
           );
       }
 
-      const queryResult = solanaQuerySchema.safeParse(req.query);
+      const queryResult = solSchemas.solanaQuerySchema.safeParse(req.query);
       if (!queryResult.success) {
         return res
           .status(400)
@@ -268,7 +214,7 @@ class SolanaRouteFactory extends BaseRouteFactory {
     const responseBuilder = new ResponseBuilder(req.requestId);
 
     try {
-      const addressResult = solanaAddressSchema.safeParse(req.params.address);
+      const addressResult = solSchemas.solanaAddressSchema.safeParse(req.params.address);
       if (!addressResult.success) {
         return res
           .status(400)
@@ -280,7 +226,7 @@ class SolanaRouteFactory extends BaseRouteFactory {
           );
       }
 
-      const queryResult = solanaQuerySchema.safeParse(req.query);
+      const queryResult = solSchemas.solanaQuerySchema.safeParse(req.query);
       if (!queryResult.success) {
         return res
           .status(400)

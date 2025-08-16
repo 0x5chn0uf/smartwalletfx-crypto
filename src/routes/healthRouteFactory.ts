@@ -43,7 +43,9 @@ class HealthRouteFactory {
       const redisStartTime = Date.now();
       const redisHealth = await Promise.race([
         redisManager.ping(),
-        new Promise<boolean>((_, reject) => setTimeout(() => reject(new Error('Redis timeout')), 5000)),
+        new Promise<boolean>((_, reject) =>
+          setTimeout(() => reject(new Error('Redis timeout')), 5000)
+        ),
       ]);
       const redisResponseTime = Date.now() - redisStartTime;
 
@@ -71,7 +73,8 @@ class HealthRouteFactory {
       const nftScore = nftHealth.isHealthy ? 1 : 0;
 
       const overallScore = redisScore * 0.3 + chainScore * 0.4 + defiScore * 0.2 + nftScore * 0.1;
-      const overallStatus: 'healthy' | 'degraded' | 'unhealthy' = overallScore >= 0.8 ? 'healthy' : overallScore >= 0.5 ? 'degraded' : 'unhealthy';
+      const overallStatus: 'healthy' | 'degraded' | 'unhealthy' =
+        overallScore >= 0.8 ? 'healthy' : overallScore >= 0.5 ? 'degraded' : 'unhealthy';
 
       const healthData = {
         status: overallStatus,
@@ -79,9 +82,18 @@ class HealthRouteFactory {
         version: '1.0.0',
         uptime,
         services: {
-          redis: { status: redisHealth ? 'healthy' : 'unhealthy', responseTime: redisResponseTime, lastChecked: new Date().toISOString() },
+          redis: {
+            status: redisHealth ? 'healthy' : 'unhealthy',
+            responseTime: redisResponseTime,
+            lastChecked: new Date().toISOString(),
+          },
           chains: {
-            status: chainHealth.healthPercentage > 75 ? 'healthy' : chainHealth.healthPercentage > 25 ? 'degraded' : 'unhealthy',
+            status:
+              chainHealth.healthPercentage > 75
+                ? 'healthy'
+                : chainHealth.healthPercentage > 25
+                  ? 'degraded'
+                  : 'unhealthy',
             healthyProviders: chainHealth.healthyProviders,
             totalProviders: chainHealth.totalProviders,
             healthPercentage: chainHealth.healthPercentage,
@@ -97,9 +109,13 @@ class HealthRouteFactory {
           },
           nft: {
             status: nftHealth.isHealthy ? 'healthy' : 'degraded',
-            healthyDetectors: Object.values(nftHealth.detectors || {}).filter((d: any) => d.isHealthy).length,
+            healthyDetectors: Object.values(nftHealth.detectors || {}).filter(
+              (d: any) => d.isHealthy
+            ).length,
             totalDetectors: Object.keys(nftHealth.detectors || {}).length,
-            healthyEnrichers: Object.values(nftHealth.enrichers || {}).filter((e: any) => e.isHealthy).length,
+            healthyEnrichers: Object.values(nftHealth.enrichers || {}).filter(
+              (e: any) => e.isHealthy
+            ).length,
             totalEnrichers: Object.keys(nftHealth.enrichers || {}).length,
             responseTime: nftResponseTime,
             detectorDetails: nftHealth.detectors,
@@ -126,7 +142,11 @@ class HealthRouteFactory {
           platform: process.platform,
           arch: process.arch,
         },
-        metadata: { requestId: req.requestId, timestamp: new Date().toISOString(), processingTime: Date.now() - startTime },
+        metadata: {
+          requestId: req.requestId,
+          timestamp: new Date().toISOString(),
+          processingTime: Date.now() - startTime,
+        },
       };
 
       const statusCode = overallStatus === 'healthy' ? 200 : 503;
@@ -136,8 +156,24 @@ class HealthRouteFactory {
       res.status(statusCode).json(healthData);
     } catch (error) {
       const processingTime = Date.now() - startTime;
-      logger.error('Health check failed:', { error: error instanceof Error ? error.message : 'Unknown error', requestId: req.requestId, processingTime });
-      res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString(), error: error instanceof Error ? error.message : 'Health check failed', version: '1.0.0', metadata: { requestId: req.requestId, timestamp: new Date().toISOString(), processingTime } });
+      logger.error('Health check failed:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        requestId: req.requestId,
+        processingTime,
+      });
+      res
+        .status(503)
+        .json({
+          status: 'unhealthy',
+          timestamp: new Date().toISOString(),
+          error: error instanceof Error ? error.message : 'Health check failed',
+          version: '1.0.0',
+          metadata: {
+            requestId: req.requestId,
+            timestamp: new Date().toISOString(),
+            processingTime,
+          },
+        });
     }
   }
 
@@ -145,23 +181,71 @@ class HealthRouteFactory {
     const startTime = Date.now();
     try {
       const diagnostics = await Promise.allSettled([
-        (async () => { const testKey = `health-test-${Date.now()}`; await redisManager.set(testKey, 'test', 10); const value = await redisManager.get(testKey); await redisManager.del(testKey); return { redis: { read: !!value, write: true, delete: true } }; })(),
-        (async () => { const results = await (this.deps.chainManager as any).testConnectivity(); return { blockchain: results }; })(),
-        (async () => { const protocolTests: any = {}; const healthStatus = (this.deps.defiPort as any).getHealthStatus?.() || {}; for (const [protocol, health] of Object.entries(healthStatus)) { (protocolTests as any)[protocol] = { healthy: (health as any).isHealthy, issues: (health as any).issues || [] }; } return { defi: protocolTests }; })(),
-        (async () => { const nftHealth = (this.deps.nftPort as any).getHealthStatus?.() || {}; return { nft: nftHealth }; })(),
+        (async () => {
+          const testKey = `health-test-${Date.now()}`;
+          await redisManager.set(testKey, 'test', 10);
+          const value = await redisManager.get(testKey);
+          await redisManager.del(testKey);
+          return { redis: { read: !!value, write: true, delete: true } };
+        })(),
+        (async () => {
+          const results = await (this.deps.chainManager as any).testConnectivity();
+          return { blockchain: results };
+        })(),
+        (async () => {
+          const protocolTests: any = {};
+          const healthStatus = (this.deps.defiPort as any).getHealthStatus?.() || {};
+          for (const [protocol, health] of Object.entries(healthStatus)) {
+            (protocolTests as any)[protocol] = {
+              healthy: (health as any).isHealthy,
+              issues: (health as any).issues || [],
+            };
+          }
+          return { defi: protocolTests };
+        })(),
+        (async () => {
+          const nftHealth = (this.deps.nftPort as any).getHealthStatus?.() || {};
+          return { nft: nftHealth };
+        })(),
       ]);
 
-      const results = diagnostics.map(r => (r.status === 'fulfilled' ? r.value : { error: (r as any).reason?.message }));
+      const results = diagnostics.map(r =>
+        r.status === 'fulfilled' ? r.value : { error: (r as any).reason?.message }
+      );
       const combinedResults = Object.assign({}, ...results);
-      res.json({ status: 'completed', timestamp: new Date().toISOString(), diagnostics: combinedResults, performance: { totalTime: Date.now() - startTime, memory: process.memoryUsage(), uptime: process.uptime() }, metadata: { requestId: req.requestId, timestamp: new Date().toISOString() } });
+      res.json({
+        status: 'completed',
+        timestamp: new Date().toISOString(),
+        diagnostics: combinedResults,
+        performance: {
+          totalTime: Date.now() - startTime,
+          memory: process.memoryUsage(),
+          uptime: process.uptime(),
+        },
+        metadata: { requestId: req.requestId, timestamp: new Date().toISOString() },
+      });
     } catch (error) {
-      logger.error('Deep health check failed:', { error: error instanceof Error ? error.message : 'Unknown error', requestId: req.requestId });
-      res.status(500).json({ status: 'error', timestamp: new Date().toISOString(), error: error instanceof Error ? error.message : 'Deep health check failed', metadata: { requestId: req.requestId, timestamp: new Date().toISOString() } });
+      logger.error('Deep health check failed:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        requestId: req.requestId,
+      });
+      res
+        .status(500)
+        .json({
+          status: 'error',
+          timestamp: new Date().toISOString(),
+          error: error instanceof Error ? error.message : 'Deep health check failed',
+          metadata: { requestId: req.requestId, timestamp: new Date().toISOString() },
+        });
     }
   }
 
   private handleLiveness(req: Request, res: Response) {
-    res.json({ status: 'alive', timestamp: new Date().toISOString(), uptime: Math.floor(process.uptime()) });
+    res.json({
+      status: 'alive',
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor(process.uptime()),
+    });
   }
 
   private async handleReadiness(req: Request, res: Response) {
@@ -169,12 +253,31 @@ class HealthRouteFactory {
       const redisReady = await redisManager.ping();
       const chainReady = this.deps.chainManager.getHealthStatus().healthyProviders > 0;
       if (redisReady && chainReady) {
-        res.json({ status: 'ready', timestamp: new Date().toISOString(), services: { redis: 'ready', blockchain: 'ready' } });
+        res.json({
+          status: 'ready',
+          timestamp: new Date().toISOString(),
+          services: { redis: 'ready', blockchain: 'ready' },
+        });
       } else {
-        res.status(503).json({ status: 'not_ready', timestamp: new Date().toISOString(), services: { redis: redisReady ? 'ready' : 'not_ready', blockchain: chainReady ? 'ready' : 'not_ready' } });
+        res
+          .status(503)
+          .json({
+            status: 'not_ready',
+            timestamp: new Date().toISOString(),
+            services: {
+              redis: redisReady ? 'ready' : 'not_ready',
+              blockchain: chainReady ? 'ready' : 'not_ready',
+            },
+          });
       }
     } catch (error) {
-      res.status(503).json({ status: 'not_ready', timestamp: new Date().toISOString(), error: error instanceof Error ? error.message : 'Readiness check failed' });
+      res
+        .status(503)
+        .json({
+          status: 'not_ready',
+          timestamp: new Date().toISOString(),
+          error: error instanceof Error ? error.message : 'Readiness check failed',
+        });
     }
   }
 }

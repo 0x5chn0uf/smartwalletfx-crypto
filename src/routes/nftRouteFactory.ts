@@ -1,106 +1,15 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import * as nftSchemas from '@/routes/schema/nft';
 import { logger } from '@/utils/logger';
-import { ChainId } from '@/types/blockchain';
-import { NFTCategory, NFTStandard } from '@/types/nft';
+// Local schemas now provide chain/category/standard parsing
 import { BaseRouteFactory } from './routeFactory';
 import type { RouteFactory } from './interfaces';
 import { ServiceDeps as ServiceDependencies } from '@/app/runtime';
 import { NFTUseCase } from '@/app/usecases/NFTUseCase';
+import type { NFTQueryOptions } from './interfaces/nft';
 
-// Validation schemas
-const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum address');
-
-const chainIdSchema = z
-  .enum(['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc', 'avalanche', 'solana'])
-  .transform(chain => {
-    const chainMap = {
-      ethereum: ChainId.ETHEREUM,
-      polygon: ChainId.POLYGON,
-      arbitrum: ChainId.ARBITRUM,
-      optimism: ChainId.OPTIMISM,
-      base: ChainId.BASE,
-      bsc: ChainId.BSC,
-      avalanche: ChainId.AVALANCHE,
-      solana: ChainId.SOLANA,
-    };
-    return chainMap[chain];
-  });
-
-const nftCategorySchema = z
-  .enum([
-    'art',
-    'collectibles',
-    'gaming',
-    'metaverse',
-    'music',
-    'photography',
-    'sports',
-    'utility',
-    'other',
-  ])
-  .transform(category => {
-    const categoryMap = {
-      art: NFTCategory.ART,
-      collectibles: NFTCategory.COLLECTIBLES,
-      gaming: NFTCategory.GAMING,
-      metaverse: NFTCategory.VIRTUAL_WORLDS,
-      music: NFTCategory.MUSIC,
-      photography: NFTCategory.PHOTOGRAPHY,
-      sports: NFTCategory.SPORTS,
-      utility: NFTCategory.UTILITY,
-      other: NFTCategory.UNKNOWN,
-    };
-    return categoryMap[category];
-  });
-
-const nftStandardSchema = z.enum(['ERC721', 'ERC1155', 'SPL']).transform(standard => {
-  const standardMap = {
-    ERC721: NFTStandard.ERC_721,
-    ERC1155: NFTStandard.ERC_1155,
-    SPL: NFTStandard.SPL_TOKEN,
-  };
-  return standardMap[standard];
-});
-
-const portfolioQuerySchema = z.object({
-  chains: z
-    .string()
-    .optional()
-    .transform(val => (val ? val.split(',').map(c => chainIdSchema.parse(c.trim())) : undefined)),
-  categories: z
-    .string()
-    .optional()
-    .transform(val =>
-      val ? val.split(',').map(c => nftCategorySchema.parse(c.trim())) : undefined
-    ),
-  standards: z
-    .string()
-    .optional()
-    .transform(val =>
-      val ? val.split(',').map(s => nftStandardSchema.parse(s.trim())) : undefined
-    ),
-  includeMetadata: z
-    .string()
-    .optional()
-    .transform(val => val !== 'false'),
-  includeListings: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  includeAnalytics: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  forceRefresh: z
-    .string()
-    .optional()
-    .transform(val => val === 'true'),
-  minValue: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseFloat(val) : undefined)),
-});
+// Validation schemas moved to '@/routes/schema/nft'
 
 class NFTRouteFactory extends BaseRouteFactory {
   private readonly usecase: NFTUseCase;
@@ -126,7 +35,7 @@ class NFTRouteFactory extends BaseRouteFactory {
 
     try {
       // Validate address parameter
-      const addressResult = addressSchema.safeParse(req.params.address);
+      const addressResult = nftSchemas.addressSchema.safeParse(req.params.address);
       if (!addressResult.success) {
         return res
           .status(400)
@@ -140,7 +49,7 @@ class NFTRouteFactory extends BaseRouteFactory {
       }
 
       // Validate query parameters
-      const queryResult = portfolioQuerySchema.safeParse(req.query);
+      const queryResult = nftSchemas.portfolioQuerySchema.safeParse(req.query);
       if (!queryResult.success) {
         return res
           .status(400)
@@ -154,7 +63,7 @@ class NFTRouteFactory extends BaseRouteFactory {
       }
 
       const address = addressResult.data;
-      const options = queryResult.data;
+      const options: NFTQueryOptions = queryResult.data;
 
       logger.info('NFT portfolio request', this.logRequest(req, { address, options }));
 
@@ -220,8 +129,8 @@ class NFTRouteFactory extends BaseRouteFactory {
 
     try {
       // Validate parameters
-      const addressResult = addressSchema.safeParse(req.params.address);
-      const contractResult = addressSchema.safeParse(req.params.contractAddress);
+      const addressResult = nftSchemas.addressSchema.safeParse(req.params.address);
+      const contractResult = nftSchemas.addressSchema.safeParse(req.params.contractAddress);
 
       if (!addressResult.success || !contractResult.success) {
         return res.status(400).json(
@@ -237,7 +146,7 @@ class NFTRouteFactory extends BaseRouteFactory {
       }
 
       // Validate required chainId parameter
-      const chainResult = chainIdSchema.safeParse(req.query.chainId);
+      const chainResult = nftSchemas.chainIdSchema.safeParse(req.query.chainId);
       if (!chainResult.success) {
         return res
           .status(400)
@@ -338,7 +247,7 @@ class NFTRouteFactory extends BaseRouteFactory {
       }
 
       // Validate required chainId parameter
-      const chainResult = chainIdSchema.safeParse(req.query.chainId);
+      const chainResult = nftSchemas.chainIdSchema.safeParse(req.query.chainId);
       if (!chainResult.success) {
         return res
           .status(400)
