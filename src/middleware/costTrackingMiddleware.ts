@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger, logError, createContextualLogger } from '@/utils/logger';
-import { getCostMonitoringService, CostRecord } from '@/services/CostMonitoringService';
-import { config } from '@/config';
-import type { CostTrackingContext } from '@/middleware/interfaces';
+import { getCostTracker } from '@/services/cost/CostTracker';
+import type { Config } from '@/config';
+import type { CostTrackingContext } from './interfaces';
 
 /**
  * Cost Tracking Middleware
@@ -19,11 +19,13 @@ import type { CostTrackingContext } from '@/middleware/interfaces';
 // Extend Express Request to include cost tracking
 declare global {
   namespace Express {
-    interface Request { costTracking?: CostTrackingContext }
+    interface Request {
+      costTracking?: CostTrackingContext;
+    }
   }
 }
 
-const costMonitoringService = getCostMonitoringService();
+const costTracker = getCostTracker();
 const contextLogger = createContextualLogger({ component: 'CostTrackingMiddleware' });
 
 /**
@@ -65,15 +67,10 @@ export const finalizeCostTracking = (req: Request, res: Response, next: NextFunc
       const success = res.statusCode < 400;
       const estimatedCost = calculateRequestCost(req, res, responseTime);
       if (estimatedCost > 0) {
-        costMonitoringService
-          .trackAPICall(ctx.provider || 'internal', ctx.endpoint || req.path, estimatedCost, {
+        costTracker
+          .trackCost(ctx.provider || 'internal', ctx.endpoint || req.path, estimatedCost, {
             requestType: ctx.operationType || getOperationType(req),
-            responseTime,
             success,
-            metadata: {
-              ...(ctx.metadata || {}),
-              statusCode: res.statusCode,
-            },
           })
           .catch(error => {
             logError(error, { operation: 'trackAPICall', path: req.path });
@@ -120,14 +117,11 @@ export const trackExternalAPICost = (
     }
 
     // Track the cost immediately for external APIs
-    costMonitoringService
-      .trackAPICall(provider, endpoint, cost, {
-        computeUnits: options.computeUnits,
+    costTracker
+      .trackCost(provider, endpoint, cost, {
         cacheHit: options.cacheHit,
-        batchSize: options.batchSize,
-        responseTime: options.responseTime,
         success: options.success,
-        metadata: options.metadata,
+        requestType: 'external_api',
       })
       .catch(error => {
         logError(error, { operation: 'trackExternalAPICost', provider, endpoint });

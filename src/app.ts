@@ -8,8 +8,8 @@ import swaggerUi from 'swagger-ui-express';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '@/utils/logger';
 import { redisManager } from '@/utils/redis';
-import { getChainManager } from '@/services/ChainManager';
-import { getCostMonitoringService } from '@/services/CostMonitoringService';
+import { getSimpleChainManager } from '@/services/SimpleChainManager';
+import { getCostTracker } from '@/services/cost/CostTracker';
 import { requestLogger } from '@/middleware/requestLogger';
 import { errorHandler } from '@/middleware/errorHandler';
 import { costTrackingMiddleware } from '@/middleware/costTrackingMiddleware';
@@ -23,7 +23,7 @@ import { createPortfolioRoutes } from '@/routes/portfolioRouteFactory';
 import { createDeFiRoutes } from '@/routes/defiRouteFactory';
 import { createNFTRoutes } from '@/routes/nftRouteFactory';
 import { createSolanaRoutes } from '@/routes/solanaRouteFactory';
-import { getRuntime } from '@/app/runtime';
+import { getRuntime } from './app/runtime';
 
 export default (config: any) => {
   const app = express();
@@ -38,7 +38,7 @@ export default (config: any) => {
     next();
   });
 
-  // Security middleware
+  // Security middleware with enhanced headers
   app.use(
     helmet({
       crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -48,6 +48,11 @@ export default (config: any) => {
           styleSrc: ["'self'", "'unsafe-inline'"],
           scriptSrc: ["'self'"],
           imgSrc: ["'self'", 'data:', 'https:'],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          mediaSrc: ["'self'"],
+          frameSrc: ["'none'"],
         },
       },
       hsts: {
@@ -55,6 +60,11 @@ export default (config: any) => {
         includeSubDomains: true,
         preload: true,
       },
+      // SECURITY FIX: Add missing critical headers
+      noSniff: true, // X-Content-Type-Options: nosniff
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      xssFilter: true,
+      frameguard: { action: 'deny' }, // X-Frame-Options: DENY
     })
   );
 
@@ -175,7 +185,7 @@ export default (config: any) => {
   app.use(requestLogger);
   app.use(costTrackingMiddleware);
 
-  // Swagger documentation setup
+  // SECURITY FIX: Swagger documentation setup with production protection
   if (config.features.swagger) {
     const swaggerOptions = {
       definition: {
@@ -285,32 +295,95 @@ export default (config: any) => {
     };
 
     const specs = swaggerJsdoc(swaggerOptions);
-    app.use(
-      '/api-docs',
-      swaggerUi.serve,
-      swaggerUi.setup(specs, {
-        customCss: '.swagger-ui .topbar { display: none }',
-        customSiteTitle: 'SmartWalletFX Crypto Data API',
-        swaggerOptions: {
-          persistAuthorization: true,
-          displayRequestDuration: true,
-          filter: true,
-          tryItOutEnabled: true,
+
+    // SECURITY FIX: Production-aware Swagger setup
+    if (config.server.isProduction) {
+      // In production: require authentication and optional IP whitelist
+      logger.warn('🚨 Swagger enabled in production environment - ensure proper access controls');
+
+      app.use(
+        '/api-docs',
+        apiKeyAuth, // Require valid API key
+        (req: Request, res: Response, next: NextFunction) => {
+          // Optional IP whitelist for production
+          const allowedIPs = process.env.SWAGGER_ALLOWED_IPS?.split(',').map(ip => ip.trim()) || [];
+          if (allowedIPs.length > 0) {
+            const clientIP = req.ip || req.connection.remoteAddress;
+            if (
+              !allowedIPs.some(
+                allowed =>
+                  clientIP === allowed ||
+                  (allowed.includes('/') && clientIP?.startsWith(allowed.split('/')[0]))
+              )
+            ) {
+              logger.warn('Swagger access denied for IP', {
+                ip: clientIP,
+                requestId: req.requestId,
+              });
+              return res.status(403).json({
+                success: false,
+                error: {
+                  code: 'SWAGGER_ACCESS_DENIED',
+                  message: 'API documentation access restricted in production',
+                },
+                metadata: {
+                  timestamp: new Date().toISOString(),
+                  requestId: req.requestId,
+                },
+              });
+            }
+          }
+          next();
         },
-      })
+        swaggerUi.serve,
+        swaggerUi.setup(specs, {
+          customCss: '.swagger-ui .topbar { display: none }',
+          customSiteTitle: 'SmartWalletFX Crypto Data API (PRODUCTION)',
+          swaggerOptions: {
+            persistAuthorization: true,
+            displayRequestDuration: true,
+            filter: true,
+            tryItOutEnabled: false, // Disable try-it-out in production
+          },
+        })
+      );
+
+      // Protected JSON spec endpoint in production
+      app.get('/api-docs.json', apiKeyAuth, (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.send(specs);
+      });
+    } else {
+      // Development/staging: normal access
+      app.use(
+        '/api-docs',
+        swaggerUi.serve,
+        swaggerUi.setup(specs, {
+          customCss: '.swagger-ui .topbar { display: none }',
+          customSiteTitle: 'SmartWalletFX Crypto Data API',
+          swaggerOptions: {
+            persistAuthorization: true,
+            displayRequestDuration: true,
+            filter: true,
+            tryItOutEnabled: true,
+          },
+        })
+      );
+
+      // Open JSON spec endpoint in development
+      app.get('/api-docs.json', (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.send(specs);
+      });
+    }
+
+    logger.info(
+      `Swagger documentation available at /api-docs (Environment: ${config.server.nodeEnv})`
     );
-
-    // JSON spec endpoint
-    app.get('/api-docs.json', (req, res) => {
-      res.setHeader('Content-Type', 'application/json');
-      res.send(specs);
-    });
-
-    logger.info('Swagger documentation available at /api-docs');
   }
 
-// API route handlers
-// Health routes (mounted after runtime is ready below)
+  // API route handlers
+  // Health routes (mounted after runtime is ready below)
 
   // Enforce API key authentication for all other /api routes
   app.use('/api', apiKeyAuth);
@@ -327,20 +400,20 @@ export default (config: any) => {
 
       logger.info('🔌 Wiring route factories with dependency injection...');
 
-    // Wire all route factories with dependency injection
-    const portfolioRoutes = createPortfolioRoutes(dependencies);
-    const defiRoutes = createDeFiRoutes(dependencies);
-    const nftRoutes = createNFTRoutes(dependencies);
-    const solanaRoutes = createSolanaRoutes(dependencies);
-    const healthRoutes = createHealthRoutes(dependencies);
+      // Wire all route factories with dependency injection
+      const portfolioRoutes = createPortfolioRoutes(dependencies);
+      const defiRoutes = createDeFiRoutes(dependencies);
+      const nftRoutes = createNFTRoutes(dependencies);
+      const solanaRoutes = createSolanaRoutes(dependencies);
+      const healthRoutes = createHealthRoutes(dependencies);
       const protocolsRoutes = createProtocolsRoutes(dependencies);
 
-    // Mount all factory-based routes
-    app.use('/health', healthRoutes);
-    app.use('/api/portfolio', portfolioRoutes);
-    app.use('/api/defi', defiRoutes);
-    app.use('/api/nft', nftRoutes);
-    app.use('/api/solana', solanaRoutes);
+      // Mount all factory-based routes
+      app.use('/health', healthRoutes);
+      app.use('/api/portfolio', portfolioRoutes);
+      app.use('/api/defi', defiRoutes);
+      app.use('/api/nft', nftRoutes);
+      app.use('/api/solana', solanaRoutes);
       app.use('/api/protocols', protocolsRoutes);
 
       logger.info('✅ All route factories initialized with dependency injection');
@@ -383,8 +456,7 @@ export default (config: any) => {
         });
       }
 
-      const healthStatus = getChainManager().getHealthStatus();
-      const costStats = getCostMonitoringService().getCurrentStats();
+      const costStats = getCostTracker().getCurrentStats();
       const redisInfo = await redisManager.ping();
 
       res.json({

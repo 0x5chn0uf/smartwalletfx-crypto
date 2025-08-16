@@ -1,15 +1,14 @@
 import type { Config } from '@/config';
-import type { ChainManager } from '@/services/ChainManager';
+import type { SimpleChainManager } from '@/services/SimpleChainManager';
 import type { SolanaProvider } from '@/services/providers/SolanaProvider';
 import type { DeFiPort } from '@/ports/DeFiPort';
 import type { NFTPort } from '@/ports/NFTPort';
 import type { SolanaPort } from '@/ports/SolanaPort';
 import type { AsyncPortfolioService } from '@/services/AsyncPortfolioService';
-import type { CostMonitoringService } from '@/services/CostMonitoringService';
-import type { WorkerManager } from '@/workers/WorkerManager';
+import type { WorkerManager } from '../../workers/WorkerManager';
 
 export interface ServiceDependencies {
-  chainManager: ChainManager;
+  chainManager: SimpleChainManager;
   solanaProvider: SolanaProvider;
   defiPort: DeFiPort;
   nftPort: NFTPort;
@@ -18,7 +17,8 @@ export interface ServiceDependencies {
   workerManager: WorkerManager;
   priceService: any;
   asyncPortfolioService: AsyncPortfolioService;
-  costMonitoringService: CostMonitoringService;
+  costTracker: any;
+  cacheManager: any;
   runtimeConfig: Config;
 }
 
