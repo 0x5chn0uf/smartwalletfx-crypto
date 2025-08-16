@@ -2,118 +2,37 @@
 // Centralized validation for all database operations
 
 import { z } from 'zod';
+import type { ValidationResult } from '@/models/interfaces';
 
-// ============================================================================
-// COMMON VALIDATION SCHEMAS
-// ============================================================================
+// Re-export common base schemas from models/schema/common
+export {
+  AddressSchema,
+  ChainIdSchema,
+  CuidSchema,
+  UUIDSchema,
+  HashSchema,
+  UrlSchema,
+  PositiveNumberSchema,
+  NonNegativeNumberSchema,
+  PercentageSchema,
+  DecimalStringSchema,
+  FutureDateSchema,
+  PastDateSchema,
+  PaginationSchema,
+} from '@/models/schema/common';
 
-// Basic field validations
-export const AddressSchema = z.string().min(1, 'Address is required');
-export const ChainIdSchema = z.string().min(1, 'Chain ID is required');
-export const CuidSchema = z.string().cuid('Invalid ID format');
-export const UUIDSchema = z.string().uuid('Invalid UUID format');
-export const HashSchema = z.string().regex(/^0x[a-fA-F0-9]+$/, 'Invalid hash format');
-export const UrlSchema = z.string().url('Invalid URL format');
+// Re-export specific entity schemas from models/schema/*
+export {
+  UserWalletCreateSchema,
+  UserWalletUpdateSchema,
+  UserWalletQuerySchema,
+} from '@/models/schema/userWallet';
 
-// Numeric validations
-export const PositiveNumberSchema = z.number().positive('Must be a positive number');
-export const NonNegativeNumberSchema = z.number().min(0, 'Must be non-negative');
-export const PercentageSchema = z.number().min(0).max(100, 'Must be between 0 and 100');
-export const DecimalStringSchema = z.string().regex(/^\d+(\.\d+)?$/, 'Invalid decimal format');
+export { TokenCreateSchema, TokenUpdateSchema, TokenQuerySchema } from '@/models/schema/token';
 
-// Date validations
-export const FutureDateSchema = z
-  .date()
-  .refine(date => date > new Date(), 'Date must be in the future');
-export const PastDateSchema = z
-  .date()
-  .refine(date => date <= new Date(), 'Date must be in the past or present');
+export { TokenBalanceCreateSchema, TokenBalanceUpdateSchema } from '@/models/schema/tokenBalance';
 
-// ============================================================================
-// USER WALLET VALIDATIONS
-// ============================================================================
-
-export const UserWalletCreateSchema = z.object({
-  address: AddressSchema,
-  chainId: ChainIdSchema,
-  name: z.string().min(1).max(100).optional(),
-  isActive: z.boolean().default(true),
-});
-
-export const UserWalletUpdateSchema = UserWalletCreateSchema.partial();
-
-export const UserWalletQuerySchema = z.object({
-  address: AddressSchema.optional(),
-  chainId: ChainIdSchema.optional(),
-  isActive: z.boolean().optional(),
-  page: z.number().int().min(1).default(1),
-  limit: z.number().int().min(1).max(100).default(20),
-  sortBy: z.enum(['createdAt', 'updatedAt', 'lastSyncAt', 'address']).default('updatedAt'),
-  sortOrder: z.enum(['asc', 'desc']).default('desc'),
-});
-
-// ============================================================================
-// TOKEN VALIDATIONS
-// ============================================================================
-
-export const TokenCreateSchema = z.object({
-  address: AddressSchema,
-  chainId: ChainIdSchema,
-  symbol: z.string().min(1).max(20),
-  name: z.string().min(1).max(100),
-  decimals: z.number().int().min(0).max(18),
-  logoUrl: UrlSchema.optional(),
-  coingeckoId: z.string().min(1).max(50).optional(),
-  isNative: z.boolean().default(false),
-  isStable: z.boolean().default(false),
-});
-
-export const TokenUpdateSchema = TokenCreateSchema.partial();
-
-export const TokenQuerySchema = z.object({
-  chainId: ChainIdSchema.optional(),
-  symbol: z.string().optional(),
-  isNative: z.boolean().optional(),
-  isStable: z.boolean().optional(),
-  search: z.string().optional(),
-  page: z.number().int().min(1).default(1),
-  limit: z.number().int().min(1).max(100).default(50),
-  sortBy: z.enum(['symbol', 'name', 'createdAt', 'updatedAt']).default('symbol'),
-  sortOrder: z.enum(['asc', 'desc']).default('asc'),
-});
-
-// ============================================================================
-// TOKEN BALANCE VALIDATIONS
-// ============================================================================
-
-export const TokenBalanceCreateSchema = z.object({
-  walletId: CuidSchema,
-  tokenId: CuidSchema,
-  balance: DecimalStringSchema,
-  balanceFormatted: z.string().min(1),
-  balanceUSD: z.number().min(0).optional(),
-  priceUSD: z.number().min(0).optional(),
-  change24h: z.number().optional(),
-  blockNumber: z.bigint().optional(),
-});
-
-export const TokenBalanceUpdateSchema = TokenBalanceCreateSchema.partial();
-
-// ============================================================================
-// PRICE CACHE VALIDATIONS
-// ============================================================================
-
-export const PriceCacheCreateSchema = z.object({
-  tokenId: CuidSchema,
-  priceUSD: PositiveNumberSchema,
-  change24h: z.number().optional(),
-  change7d: z.number().optional(),
-  change30d: z.number().optional(),
-  volume24h: NonNegativeNumberSchema.optional(),
-  marketCap: NonNegativeNumberSchema.optional(),
-  source: z.string().min(1).max(50),
-  expiresAt: FutureDateSchema,
-});
+export { PriceCacheCreateSchema } from '@/models/schema/priceCache';
 
 // ============================================================================
 // PORTFOLIO VALIDATIONS
@@ -454,15 +373,7 @@ export class ValidationError extends Error {
 /**
  * Validation result type
  */
-export interface ValidationResult<T> {
-  success: boolean;
-  data?: T;
-  errors?: Array<{
-    field: string;
-    message: string;
-    code: string;
-  }>;
-}
+// ValidationResult moved to '@/models/interfaces'
 
 /**
  * Generic validator function

@@ -4,20 +4,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma, dbUtils } from '@/utils/database';
 import { logger } from '@/utils/logger';
-
-// ============================================================================
-// MIGRATION INTERFACE
-// ============================================================================
-
-export interface Migration {
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  up: () => Promise<void>;
-  down: () => Promise<void>;
-  validate?: () => Promise<boolean>;
-}
+import type { Migration } from '@/models/interfaces';
 
 // ============================================================================
 // MIGRATION REGISTRY
