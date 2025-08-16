@@ -1,4 +1,4 @@
-import { config } from '@/config';
+// Config will be passed through constructor
 import { logger, logApiCall, logCost } from '@/utils/logger';
 import { redisManager } from '@/utils/redis';
 import { MoneyUtils, MoneyDecimal } from '@/utils/money';
@@ -17,11 +17,13 @@ import { AlchemyProvider } from './providers/AlchemyProvider';
 import { RpcProvider } from './providers/RpcProvider';
 import { SolanaProvider } from './providers/SolanaProvider';
 import { getPriceService } from '@/services/pricing/PriceService';
-import { 
-  ProviderConcurrencyLimiter, 
+import {
+  ProviderConcurrencyLimiter,
   executeWithConcurrencyLimit,
-  getGlobalConcurrencyLimiter 
+  getGlobalConcurrencyLimiter,
 } from '@/utils/concurrencyLimiter';
+import { BatchProcessor, BatchItem, BatchResult } from '@/utils/batchProcessor';
+import { CircuitBreakerFactory } from '@/utils/circuitBreaker';
 
 interface ChainManagerConfig {
   providers: {
@@ -59,25 +61,50 @@ export class ChainManager {
   private costTracker: Map<string, number> = new Map(); // provider -> monthly cost
   private requestStats: Map<string, number> = new Map(); // provider -> request count
   private concurrencyLimiter: ProviderConcurrencyLimiter;
+  private batchProcessor: BatchProcessor<string, TokenBalance[]>;
+  private portfolioCache = new Map<string, { data: MultiChainPortfolio; expires: number }>();
 
   constructor(private readonly managerConfig: ChainManagerConfig) {
-    // Initialize concurrency limiter with centralized configuration
-    const retryConfig = this.managerConfig.concurrency?.retryConfig || config.concurrency.retryConfig;
-    const defaultConcurrency = {
-      concurrency: config.concurrency.chainManagerConcurrency,
-      rateLimitPerSecond: config.concurrency.rateLimits.perSecond,
-      rateLimitPerMinute: config.concurrency.rateLimits.perMinute,
-      burstAllowance: config.concurrency.rateLimits.burstAllowance,
+    // Initialize concurrency limiter with default configuration
+    const retryConfig = this.managerConfig.concurrency?.retryConfig || {
+      maxAttempts: 3,
+      initialDelayMs: 1000,
+      maxDelayMs: 30000,
+      backoffMultiplier: 2.0,
+      jitterFactor: 0.1,
     };
-    
-    this.concurrencyLimiter = new ProviderConcurrencyLimiter(
-      retryConfig,
-      defaultConcurrency
+    const defaultConcurrency = {
+      concurrency: this.managerConfig.maxConcurrentRequests || 10,
+      rateLimitPerSecond: 10,
+      rateLimitPerMinute: 600,
+      burstAllowance: 5,
+    };
+
+    this.concurrencyLimiter = new ProviderConcurrencyLimiter(retryConfig, defaultConcurrency);
+
+    // Initialize batch processor for multi-chain operations
+    this.batchProcessor = new BatchProcessor(
+      async (address: string, context: { chainId?: ChainId; provider?: string }) => {
+        const result = await this.getBalance(context.chainId!, address);
+        if (!result.success || !result.data) {
+          throw new Error(result.error?.message || 'Failed to get balance');
+        }
+        return result.data;
+      },
+      {
+        maxConcurrency: defaultConcurrency.concurrency,
+        batchSize: 5,
+        timeoutMs: 30000,
+        retryAttempts: 3,
+        retryDelayMs: 1000,
+        useCircuitBreaker: true
+      }
     );
-    
+
     this.initializeProviders();
     this.startHealthChecking();
     this.startCostTracking();
+    this.startCacheCleanup();
   }
 
   private initializeProviders(): void {
@@ -122,32 +149,8 @@ export class ChainManager {
     }
 
     // Initialize generic RPC providers for additional EVM chains (BSC, Avalanche, Fantom)
-    try {
-      if (config.rpcUrls.bsc) {
-        const bsc = new RpcProvider(ChainId.BSC, config.rpcUrls.bsc, 'BSC RPC');
-        this.providers.set(ChainId.BSC, bsc);
-        this.providerHealth.set(ChainId.BSC, true);
-        logger.info('Initialized RPC provider for BSC');
-      }
-      if (config.rpcUrls.avalanche) {
-        const avax = new RpcProvider(ChainId.AVALANCHE, config.rpcUrls.avalanche, 'Avalanche RPC');
-        this.providers.set(ChainId.AVALANCHE, avax);
-        this.providerHealth.set(ChainId.AVALANCHE, true);
-        logger.info('Initialized RPC provider for Avalanche');
-      }
-      if (config.rpcUrls.fantom) {
-        const ftm = new RpcProvider(
-          ChainId.FANTOM as any,
-          (config.rpcUrls as any).fantom,
-          'Fantom RPC'
-        );
-        this.providers.set(ChainId.FANTOM as any, ftm);
-        this.providerHealth.set(ChainId.FANTOM as any, true);
-        logger.info('Initialized RPC provider for Fantom');
-      }
-    } catch (error) {
-      logger.error('Failed to initialize RPC providers:', { error });
-    }
+    // Additional RPC providers can be initialized here
+    // Currently using Alchemy for EVM chains and Helius for Solana
 
     logger.info(`ChainManager initialized with ${this.providers.size} providers`);
   }
@@ -315,7 +318,7 @@ export class ChainManager {
     }
 
     const startTime = Date.now();
-    
+
     // Use concurrency limiter if enabled
     if (this.managerConfig.concurrency?.enabled) {
       const result = await executeWithConcurrencyLimit(
@@ -324,12 +327,12 @@ export class ChainManager {
         chainId,
         this.managerConfig.concurrency?.retryConfig
       );
-      
+
       if (result.success && result.data) {
         // Track cost - note that ProviderResult doesn't have cost metadata
         // This would be added by the actual provider response
         const duration = Date.now() - startTime;
-        
+
         // Use enhanced metrics with all required parameters
         recordProviderCall(
           provider.name,
@@ -341,7 +344,7 @@ export class ChainManager {
           result.metadata.attempts,
           result.metadata.cost
         );
-        
+
         logApiCall(provider.name, 'getBalance', duration, 'success', {
           chainId,
           address,
@@ -349,7 +352,7 @@ export class ChainManager {
           attempts: result.metadata.attempts,
           totalTime: result.metadata.totalTime,
         });
-        
+
         return {
           success: true,
           data: result.data,
@@ -364,7 +367,7 @@ export class ChainManager {
         };
       } else {
         const duration = Date.now() - startTime;
-        
+
         // Use enhanced metrics with all required parameters
         recordProviderCall(
           provider.name,
@@ -376,7 +379,7 @@ export class ChainManager {
           result.metadata.attempts,
           result.metadata.cost
         );
-        
+
         logApiCall(provider.name, 'getBalance', duration, 'error', {
           chainId,
           address,
@@ -384,7 +387,7 @@ export class ChainManager {
           attempts: result.metadata.attempts,
           totalTime: result.metadata.totalTime,
         });
-        
+
         return {
           success: false,
           error: {
@@ -402,7 +405,7 @@ export class ChainManager {
         };
       }
     }
-    
+
     // Fallback to original implementation if concurrency limiting is disabled
     try {
       const result = await provider.getBalance(address);
@@ -444,7 +447,7 @@ export class ChainManager {
     }
   }
 
-  // Multi-chain portfolio
+  // Multi-chain portfolio with optimized batch processing
   async getMultiChainPortfolio(
     address: string,
     chainIds?: ChainId[]
@@ -455,47 +458,74 @@ export class ChainManager {
     const cacheKey = `multi-chain-portfolio:${address}:${targetChains.sort().join(',')}`;
 
     try {
-      // Try cache first
+      // Try multi-level cache (memory -> Redis)
+      const memoryCache = this.getFromMemoryCache(cacheKey);
+      if (memoryCache) {
+        logger.debug(`Multi-chain portfolio memory cache hit for ${address}`);
+        return {
+          success: true,
+          data: memoryCache,
+          metadata: {
+            provider: 'ChainManager',
+            chainId: ChainId.ETHEREUM,
+            timestamp: Date.now(),
+            requestId: 'memory_cache_hit',
+          },
+        };
+      }
+
       const cached = await redisManager.get<MultiChainPortfolio>(cacheKey);
       if (cached) {
-        logger.debug(`Multi-chain portfolio cache hit for ${address}`);
+        logger.debug(`Multi-chain portfolio Redis cache hit for ${address}`);
+        // Store in memory cache for faster future access
+        this.setMemoryCache(cacheKey, cached, 300); // 5 minutes
         return {
           success: true,
           data: cached,
           metadata: {
             provider: 'ChainManager',
-            chainId: ChainId.ETHEREUM, // Default
+            chainId: ChainId.ETHEREUM,
             timestamp: Date.now(),
-            requestId: 'cache_hit',
+            requestId: 'redis_cache_hit',
           },
         };
       }
 
-      // Fetch balances from all chains with concurrency control
-      const balancePromises = targetChains.map(async chainId => {
-        const result = await this.getBalance(chainId, address);
-        return { chainId, result };
-      });
+      // Prepare batch items for parallel processing
+      const batchItems: BatchItem<string, TokenBalance[]>[] = targetChains.map((chainId, index) => ({
+        id: `${address}-${chainId}`,
+        input: address,
+        chainId,
+        provider: this.getProvider(chainId)?.name || 'unknown',
+        priority: this.getChainPriority(chainId)
+      }));
 
-      const balanceResults = await Promise.allSettled(balancePromises);
+      // Process all chains in parallel with intelligent batching
+      const batchResults = await this.batchProcessor.processBatch(batchItems);
 
-      // Process results
+      // Process results with parallel USD enrichment
       const chains: PortfolioSummary[] = [];
       const allTokens: TokenBalance[] = [];
       let totalValueUSD = 0;
       let successfulChains = 0;
-      let totalRequests = 0;
+      let totalRequests = targetChains.length;
 
-      for (const promiseResult of balanceResults) {
-        if (promiseResult.status === 'fulfilled') {
-          const { chainId, result } = promiseResult.value;
-          totalRequests++;
+      // Parallel price enrichment for all successful results
+      const enrichmentPromises = batchResults
+        .filter(result => result.success && result.data)
+        .map(async (result) => {
+          const chainId = result.metadata.chainId!;
+          const enriched = await getPriceService().enrichBalances(chainId, result.data!);
+          return { chainId, enriched, result };
+        });
 
-          if (result.success && result.data) {
-            successfulChains++;
-            // Enrich with USD prices
-            const enriched = await getPriceService().enrichBalances(chainId, result.data);
-            
+      const enrichmentResults = await Promise.allSettled(enrichmentPromises);
+
+      for (const enrichmentResult of enrichmentResults) {
+        if (enrichmentResult.status === 'fulfilled') {
+          const { chainId, enriched, result } = enrichmentResult.value;
+          successfulChains++;
+
             // Calculate chain total in USD using precise decimal arithmetic
             const chainTotalUSD = enriched.reduce((sum, t) => {
               if (t.balanceUSD && !isNaN(t.balanceUSD)) {
@@ -506,24 +536,33 @@ export class ChainManager {
               return sum;
             }, 0);
 
-            const chainSummary: PortfolioSummary = {
-              address,
-              chainId,
-              totalValueUSD: chainTotalUSD,
-              tokenCount: enriched.length,
-              tokens: enriched,
-              nativeBalance: enriched.find(t => t.token.isNative),
-              lastUpdated: new Date(),
-            };
+          // Calculate chain total in USD using precise decimal arithmetic
+          const chainTotalUSD = enriched.reduce((sum, t) => {
+            if (t.balanceUSD && !isNaN(t.balanceUSD)) {
+              const currentSum = MoneyUtils.usd(sum);
+              const tokenValue = MoneyUtils.usd(t.balanceUSD);
+              return currentSum.add(tokenValue).toNumber();
+            }
+            return sum;
+          }, 0);
 
-            chains.push(chainSummary);
-            allTokens.push(...enriched);
-            
-            // Add to total using precise decimal arithmetic
-            const currentTotal = MoneyUtils.usd(totalValueUSD);
-            const chainValue = MoneyUtils.usd(chainTotalUSD);
-            totalValueUSD = currentTotal.add(chainValue).toNumber();
-          }
+          const chainSummary: PortfolioSummary = {
+            address,
+            chainId,
+            totalValueUSD: chainTotalUSD,
+            tokenCount: enriched.length,
+            tokens: enriched,
+            nativeBalance: enriched.find(t => t.token.isNative),
+            lastUpdated: new Date(),
+          };
+
+          chains.push(chainSummary);
+          allTokens.push(...enriched);
+
+          // Add to total using precise decimal arithmetic
+          const currentTotal = MoneyUtils.usd(totalValueUSD);
+          const chainValue = MoneyUtils.usd(chainTotalUSD);
+          totalValueUSD = currentTotal.add(chainValue).toNumber();
         }
       }
 
@@ -534,8 +573,12 @@ export class ChainManager {
       const topTokens = allTokens
         .filter(t => !t.token.isNative)
         .sort((a, b) => {
-          const aValue = a.balanceUSD ? MoneyUtils.usd(a.balanceUSD) : MoneyUtils.crypto(parseFloat(a.balanceFormatted));
-          const bValue = b.balanceUSD ? MoneyUtils.usd(b.balanceUSD) : MoneyUtils.crypto(parseFloat(b.balanceFormatted));
+          const aValue = a.balanceUSD
+            ? MoneyUtils.usd(a.balanceUSD)
+            : MoneyUtils.crypto(parseFloat(a.balanceFormatted));
+          const bValue = b.balanceUSD
+            ? MoneyUtils.usd(b.balanceUSD)
+            : MoneyUtils.crypto(parseFloat(b.balanceFormatted));
           return bValue.compare(aValue);
         })
         .slice(0, 10);
@@ -555,8 +598,9 @@ export class ChainManager {
         },
       };
 
-      // Cache the result using configured TTL
-      await redisManager.set(cacheKey, portfolio, config.cache.ttl.medium);
+      // Cache the result in both Redis and memory
+      await redisManager.set(cacheKey, portfolio, 3600); // 1 hour
+      this.setMemoryCache(cacheKey, portfolio, 300); // 5 minutes
 
       return {
         success: true,
@@ -613,11 +657,11 @@ export class ChainManager {
         chainId,
         this.managerConfig.concurrency?.retryConfig
       );
-      
+
       if (result.success && result.data) {
         // Track cost - note that ProviderResult doesn't have cost metadata
         // This would be added by the actual provider response
-        
+
         return {
           success: true,
           data: result.data,
@@ -648,7 +692,7 @@ export class ChainManager {
         };
       }
     }
-    
+
     // Fallback to original implementation
     const result = await provider.getTransaction(hash);
 
@@ -745,6 +789,92 @@ export class ChainManager {
   }
 
   /**
+   * Get from memory cache
+   */
+  private getFromMemoryCache(key: string): MultiChainPortfolio | null {
+    const cached = this.portfolioCache.get(key);
+    if (cached && cached.expires > Date.now()) {
+      return cached.data;
+    }
+    if (cached) {
+      this.portfolioCache.delete(key); // Remove expired entry
+    }
+    return null;
+  }
+
+  /**
+   * Set memory cache with expiration
+   */
+  private setMemoryCache(key: string, data: MultiChainPortfolio, ttlSeconds: number): void {
+    const expires = Date.now() + (ttlSeconds * 1000);
+    this.portfolioCache.set(key, { data, expires });
+  }
+
+  /**
+   * Get chain priority for batch processing ordering
+   */
+  private getChainPriority(chainId: ChainId): number {
+    // Prioritize commonly used chains for faster user experience
+    const priorities: Record<ChainId, number> = {
+      [ChainId.ETHEREUM]: 10,
+      [ChainId.POLYGON]: 9,
+      [ChainId.ARBITRUM]: 8,
+      [ChainId.OPTIMISM]: 7,
+      [ChainId.BASE]: 6,
+      [ChainId.BSC]: 5,
+      [ChainId.AVALANCHE]: 4,
+      [ChainId.FANTOM]: 3,
+      [ChainId.SOLANA]: 8, // High priority for Solana
+    };
+    return priorities[chainId] || 1;
+  }
+
+  /**
+   * Start cache cleanup for memory cache
+   */
+  private startCacheCleanup(): void {
+    setInterval(() => {
+      const now = Date.now();
+      for (const [key, cached] of this.portfolioCache.entries()) {
+        if (cached.expires <= now) {
+          this.portfolioCache.delete(key);
+        }
+      }
+    }, 300000); // Clean every 5 minutes
+  }
+
+  /**
+   * Get batch processor statistics
+   */
+  getBatchProcessorStats() {
+    return this.batchProcessor.getStats();
+  }
+
+  /**
+   * Get memory cache statistics
+   */
+  getMemoryCacheStats() {
+    const now = Date.now();
+    let validEntries = 0;
+    let expiredEntries = 0;
+    
+    for (const cached of this.portfolioCache.values()) {
+      if (cached.expires > now) {
+        validEntries++;
+      } else {
+        expiredEntries++;
+      }
+    }
+
+    return {
+      totalEntries: this.portfolioCache.size,
+      validEntries,
+      expiredEntries,
+      memoryUsageApprox: this.portfolioCache.size * 1024 // Rough estimate
+    };
+  }
+
+  /**
    * Stop the ChainManager and cleanup resources
    * Called during graceful shutdown
    */
@@ -794,6 +924,7 @@ export class ChainManager {
       this.providerHealth.clear();
       this.costTracker.clear();
       this.requestStats.clear();
+      this.portfolioCache.clear();
 
       logger.info('ChainManager: Graceful shutdown completed');
     } catch (error) {
