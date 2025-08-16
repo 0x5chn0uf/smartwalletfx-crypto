@@ -27,3 +27,149 @@ paths:
                     type: object
         '503':
           description: Service is unhealthy
+  /health/liveness:
+    get:
+      summary: Kubernetes liveness probe
+      description: Lightweight endpoint to confirm the process is alive
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: alive
+                  timestamp:
+                    type: string
+                    format: date-time
+                  uptime:
+                    type: number
+  /health/readiness:
+    get:
+      summary: Kubernetes readiness probe
+      description: Checks if critical dependencies are ready to accept traffic
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+        '503':
+          description: Service is not ready
+  /health/metrics:
+    get:
+      summary: Prometheus metrics
+      description: Returns Prometheus-formatted metrics for scraping
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+  /health/enhanced:
+    get:
+      summary: Enhanced health
+      description: Returns detailed monitoring information
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Enhanced health detail
+  /health/dashboard:
+    get:
+      summary: Performance dashboard data
+      description: Returns performance dashboard metrics
+      tags: [Health]
+      security: []
+      parameters:
+        - in: query
+          name: timeRange
+          schema:
+            type: string
+            enum: [1h, 6h, 24h, 7d, 30d]
+            default: 1h
+        - in: query
+          name: detailed
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Dashboard metrics
+  /health/cost:
+    get:
+      summary: Cost metrics
+      description: Returns cost monitoring and optimization metrics
+      tags: [Health]
+      security: []
+      parameters:
+        - in: query
+          name: period
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, 30d]
+            default: 24h
+        - in: query
+          name: detailed
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Cost metrics
+  /health/events:
+    get:
+      summary: Event system metrics
+      description: Returns event bus and processing metrics
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Event metrics
+  /health/cache-warming:
+    get:
+      summary: Cache warming performance
+      description: Returns cache warming performance and strategy metrics
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Cache warming metrics
+  /health/alerts:
+    get:
+      summary: System alerts
+      description: Returns active system alerts and notifications
+      tags: [Health]
+      security: []
+      parameters:
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [info, warning, critical, emergency]
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Alerts list
+  /health/force-update:
+    post:
+      summary: Force metrics update
+      description: Forces immediate refresh of monitoring metrics
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Update triggered
+        '401':
+          description: Unauthorized
