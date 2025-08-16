@@ -1,0 +1,44 @@
+openapi: 3.0.0
+components:
+  schemas:
+    StandardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+        metadata:
+          type: object
+          properties:
+            timestamp:
+              type: string
+              format: date-time
+            requestId:
+              type: string
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+        metadata:
+          type: object
+    ProtocolOverview:
+      type: object
+      properties:
+        defi:
+          type: object
+        nft:
+          type: object
+        chains:
+          type: object

@@ -1,0 +1,49 @@
+paths:
+  /api/protocols:
+    get:
+      summary: Get supported protocols and services
+      description: Information about DeFi protocols, NFT services, and chains
+      tags: [Protocols]
+      responses:
+        '200':
+          description: Supported protocols and services
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+  /api/protocols/defi:
+    get:
+      summary: Get DeFi protocols information
+      description: Detailed info and health for supported DeFi protocols
+      tags: [Protocols]
+      responses:
+        '200':
+          description: DeFi protocols list and status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+  /api/protocols/nft:
+    get:
+      summary: Get NFT services information
+      description: List of NFT detectors/enrichers with health/status
+      tags: [Protocols]
+      responses:
+        '200':
+          description: NFT services info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+  /api/protocols/chains:
+    get:
+      summary: Get blockchain networks information
+      description: Supported chains and provider health
+      tags: [Protocols]
+      responses:
+        '200':
+          description: Chains information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'

@@ -1,0 +1,29 @@
+paths:
+  /health:
+    get:
+      summary: Service health check
+      description: Returns overall service and dependency health
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy or degraded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded, unhealthy]
+                  timestamp:
+                    type: string
+                    format: date-time
+                  version:
+                    type: string
+                  uptime:
+                    type: number
+                  services:
+                    type: object
+        '503':
+          description: Service is unhealthy
