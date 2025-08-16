@@ -71,13 +71,13 @@ export interface PublishOptions {
 
 /**
  * Event Bus Port - Abstract interface for event publishing and subscribing
- * 
+ *
  * This port abstracts the event bus implementation, allowing different adapters:
  * - InMemoryEventBusAdapter (dev/testing)
- * - BullMQEventBusAdapter (Redis queues)  
+ * - BullMQEventBusAdapter (Redis queues)
  * - KafkaEventBusAdapter (future)
  * - NATSEventBusAdapter (future)
- * 
+ *
  * Follows hexagonal architecture principles - the application core defines
  * this interface, and infrastructure adapters implement it.
  */
@@ -145,9 +145,9 @@ export interface EventBusPort {
    */
   getMetrics(): Promise<{
     publishedEvents: Record<string, number>; // by event type
-    consumedEvents: Record<string, number>;   // by event type
+    consumedEvents: Record<string, number>; // by event type
     averageLatencyMs: Record<string, number>; // by event type
-    errorRate: Record<string, number>;        // by event type
+    errorRate: Record<string, number>; // by event type
     queueDepth?: number; // if supported by adapter
     throughputPerSecond: number;
   }>;
@@ -171,7 +171,7 @@ export type EventBusFactory = () => EventBusPort;
 export interface EventBusConfig {
   /** Adapter type identifier */
   adapter: 'in-memory' | 'bullmq' | 'kafka' | 'nats';
-  
+
   /** Connection configuration (adapter-specific) */
   connection?: {
     redis?: {
