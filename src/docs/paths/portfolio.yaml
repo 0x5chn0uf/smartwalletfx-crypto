@@ -56,7 +56,30 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/PortfolioResponse'
+              examples:
+                sample:
+                  summary: Example portfolio response
+                  value:
+                    success: true
+                    data:
+                      defi:
+                        totalValueUSD: 12000
+                        totalBorrowedUSD: 2000
+                        netValueUSD: 10000
+                        positionCount: 3
+                        protocolCount: 2
+                      nfts:
+                        totalValueUSD: 8000
+                        totalCollections: 2
+                        totalNFTs: 5
+                      chainDistribution:
+                        - chainId: ethereum
+                          totalValueUSD: 15000
+                          percentage: 75
+                        - chainId: polygon
+                          totalValueUSD: 5000
+                          percentage: 25
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':

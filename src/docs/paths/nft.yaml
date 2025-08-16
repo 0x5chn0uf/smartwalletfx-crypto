@@ -44,6 +44,36 @@ paths:
       responses:
         '200':
           description: NFT portfolio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NFTPortfolioResponse'
+              examples:
+                sample:
+                  summary: Example NFT portfolio
+                  value:
+                    success: true
+                    data:
+                      totalValueUSD: 25000
+                      totalCollections: 2
+                      totalNFTs: 5
+                      collections:
+                        - id: 'ethereum:0xcollection'
+                          contractAddress: '0xcollection'
+                          chainId: ethereum
+                          standard: erc-721
+                          name: 'Cool Collection'
+                          symbol: 'COOL'
+                          tokens:
+                            - id: 'ethereum:0xcollection:1'
+                              contractAddress: '0xcollection'
+                              tokenId: '1'
+                              chainId: ethereum
+                              standard: erc-721
+                              owner: '0xuser'
+                              name: 'Cool #1'
+                              image: 'https://.../1.png'
+                              attributes: [{ trait_type: 'Background', value: 'Blue' }]
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -72,7 +102,38 @@ paths:
           name: includeAnalytics
           schema: { type: boolean }
       responses:
-        '200': { description: Collection info }
+        '200':
+          description: Collection info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NFTPortfolioResponse'
+              examples:
+                sample:
+                  summary: Example NFT portfolio
+                  value:
+                    success: true
+                    data:
+                      totalValueUSD: 25000
+                      totalCollections: 2
+                      totalNFTs: 5
+                      collections:
+                        - id: 'ethereum:0xcollection'
+                          contractAddress: '0xcollection'
+                          chainId: ethereum
+                          standard: erc-721
+                          name: 'Cool Collection'
+                          symbol: 'COOL'
+                          tokens:
+                            - id: 'ethereum:0xcollection:1'
+                              contractAddress: '0xcollection'
+                              tokenId: '1'
+                              chainId: ethereum
+                              standard: erc-721
+                              owner: '0xuser'
+                              name: 'Cool #1'
+                              image: 'https://.../1.png'
+                              attributes: [{ trait_type: 'Background', value: 'Blue' }]
         '400': { $ref: '#/components/responses/BadRequest' }
         '500': { $ref: '#/components/responses/InternalError' }
 
@@ -94,7 +155,29 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '200': { description: Token metadata }
+        '200':
+          description: Token metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NFTMetadataResponse'
+              examples:
+                sample:
+                  summary: Example NFT metadata
+                  value:
+                    success: true
+                    data:
+                      id: 'ethereum:0xcollection:1'
+                      contractAddress: '0xcollection'
+                      tokenId: '1'
+                      chainId: ethereum
+                      standard: erc-721
+                      owner: '0xuser'
+                      name: 'Cool #1'
+                      image: 'https://.../1.png'
+                      attributes:
+                        - trait_type: 'Background'
+                          value: 'Blue'
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { description: NFT not found }
         '500': { $ref: '#/components/responses/InternalError' }

@@ -12,19 +12,17 @@ paths:
             application/json:
               schema:
                 type: object
-                properties:
-                  status:
-                    type: string
-                    enum: [healthy, degraded, unhealthy]
-                  timestamp:
-                    type: string
-                    format: date-time
-                  version:
-                    type: string
-                  uptime:
-                    type: number
-                  services:
-                    type: object
+              examples:
+                sample:
+                  summary: Example health
+                  value:
+                    status: healthy
+                    timestamp: '2025-01-01T00:00:00.000Z'
+                    version: '1.0.0'
+                    uptime: 12345
+                    services:
+                      redis: { status: healthy, responseTime: 5 }
+                      chains: { status: healthy, healthyProviders: 6, totalProviders: 6 }
         '503':
           description: Service is unhealthy
   /health/liveness:
@@ -49,6 +47,12 @@ paths:
                     format: date-time
                   uptime:
                     type: number
+              examples:
+                sample:
+                  value:
+                    status: alive
+                    timestamp: '2025-01-01T00:00:00.000Z'
+                    uptime: 100
   /health/readiness:
     get:
       summary: Kubernetes readiness probe
@@ -58,8 +62,19 @@ paths:
       responses:
         '200':
           description: Service is ready
+          content:
+            application/json:
+              examples:
+                ready:
+                  value: { status: ready, services: { redis: ready, blockchain: ready } }
         '503':
           description: Service is not ready
+          content:
+            application/json:
+              examples:
+                notReady:
+                  value:
+                    { status: not_ready, services: { redis: not_ready, blockchain: not_ready } }
   /health/metrics:
     get:
       summary: Prometheus metrics

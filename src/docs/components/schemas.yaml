@@ -42,3 +42,225 @@ components:
           type: object
         chains:
           type: object
+
+    PortfolioData:
+      type: object
+      properties:
+        defi:
+          type: object
+          nullable: true
+          properties:
+            totalValueUSD: { type: number }
+            totalBorrowedUSD: { type: number }
+            netValueUSD: { type: number }
+            positionCount: { type: number }
+            protocolCount: { type: number }
+        nfts:
+          type: object
+          nullable: true
+          properties:
+            totalValueUSD: { type: number }
+            totalCollections: { type: number }
+            totalNFTs: { type: number }
+        chainDistribution:
+          type: array
+          items:
+            type: object
+            properties:
+              chainId: { type: string }
+              totalValueUSD: { type: number }
+              percentage: { type: number }
+
+    PortfolioResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PortfolioData'
+
+    DeFiPositionsData:
+      type: object
+      properties:
+        positions:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeFiPosition'
+        portfolioSummary:
+          type: object
+          properties:
+            totalValueUSD: { type: number }
+            positionCount: { type: number }
+            protocols: { type: integer }
+
+    DeFiPositionsResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DeFiPositionsData'
+
+    NFTPortfolioData:
+      type: object
+      properties:
+        totalValueUSD: { type: number }
+        totalCollections: { type: number }
+        totalNFTs: { type: number }
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/NFTCollection'
+
+    NFTPortfolioResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/NFTPortfolioData'
+
+    NFTMetadataData:
+      $ref: '#/components/schemas/NFTToken'
+
+    NFTMetadataResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/NFTMetadataData'
+
+    # -----------------------------------------
+    # Detailed domain models for responses
+    # -----------------------------------------
+    TokenAmount:
+      type: object
+      properties:
+        symbol: { type: string }
+        address: { type: string }
+        decimals: { type: integer }
+        amount: { type: string, description: 'Raw amount (string to preserve precision)' }
+        amountFormatted: { type: string }
+        valueUSD: { type: number }
+
+    DeFiPosition:
+      type: object
+      properties:
+        id: { type: string }
+        protocol:
+          type: string
+          description: DeFi protocol identifier
+          enum:
+            [
+              aave-v3,
+              compound-v3,
+              uniswap-v3,
+              curve,
+              yearn,
+              convex,
+              makerdao,
+              lido,
+              rocket-pool,
+              balancer,
+            ]
+        chainId: { type: string }
+        type:
+          type: string
+          enum: [lending, borrowing, liquidity_pool, staking, yield_farming, vault, cdp, insurance]
+        status:
+          type: string
+          enum: [active, inactive, at_risk, liquidated, closed]
+        valueUSD: { type: number }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        url: { type: string, nullable: true }
+        suppliedTokens:
+          type: array
+          items:
+            type: object
+            properties:
+              token: { type: object, additionalProperties: true }
+              amount: { type: string }
+              amountFormatted: { type: string }
+              valueUSD: { type: number, nullable: true }
+        borrowedTokens:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              token: { type: object, additionalProperties: true }
+              amount: { type: string }
+              amountFormatted: { type: string }
+              valueUSD: { type: number, nullable: true }
+        rewards:
+          type: array
+          items: { $ref: '#/components/schemas/TokenAmount' }
+        apy: { type: number, nullable: true }
+        healthFactor: { type: number, nullable: true }
+        risk:
+          type: string
+          nullable: true
+          enum: [low, medium, high, critical]
+        metadata:
+          type: object
+          additionalProperties: true
+
+    NFTAttribute:
+      type: object
+      properties:
+        trait_type: { type: string }
+        value: { type: string }
+
+    NFTToken:
+      type: object
+      properties:
+        id: { type: string, description: '{chainId}:{contractAddress}:{tokenId}' }
+        contractAddress: { type: string }
+        tokenId: { type: string }
+        chainId: { type: string }
+        standard:
+          type: string
+          enum: [erc-721, erc-1155, spl-token, metaplex]
+        owner: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        image: { type: string, nullable: true }
+        attributes:
+          type: array
+          items: { $ref: '#/components/schemas/NFTAttribute' }
+        lastSalePrice:
+          type: object
+          nullable: true
+          properties:
+            amount: { type: string }
+            currency: { type: string }
+            usdValue: { type: number, nullable: true }
+            timestamp: { type: string, format: date-time }
+            marketplace: { type: string, nullable: true }
+        metadata:
+          type: object
+          additionalProperties: true
+
+    NFTCollection:
+      type: object
+      properties:
+        id: { type: string, description: '{chainId}:{contractAddress}' }
+        contractAddress: { type: string }
+        chainId: { type: string }
+        standard:
+          type: string
+          enum: [erc-721, erc-1155, spl-token, metaplex]
+        name: { type: string }
+        symbol: { type: string }
+        description: { type: string, nullable: true }
+        tokens:
+          type: array
+          items: { $ref: '#/components/schemas/NFTToken' }
+        analytics:
+          type: object
+          properties:
+            marketCapUSD: { type: number, nullable: true }
+            volume24hUSD: { type: number, nullable: true }
+            holders: { type: integer, nullable: true }

@@ -11,6 +11,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardResponse'
+              examples:
+                sample:
+                  value:
+                    success: true
+                    data:
+                      summary: { protocols: 6, nftServices: 2 }
   /api/protocols/defi:
     get:
       summary: Get DeFi protocols information
@@ -23,6 +29,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardResponse'
+              examples:
+                sample:
+                  value:
+                    success: true
+                    data:
+                      services:
+                        detectors: ['EVM', 'Solana']
+                        enrichers: ['IPFS', 'Price']
   /api/protocols/nft:
     get:
       summary: Get NFT services information

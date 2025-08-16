@@ -42,6 +42,43 @@ paths:
       responses:
         '200':
           description: DeFi portfolio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeFiPositionsResponse'
+              examples:
+                sample:
+                  summary: Example DeFi positions
+                  value:
+                    success: true
+                    data:
+                      positions:
+                        - id: 'eth:aave-v3:0xpool:0xuser'
+                          protocol: aave-v3
+                          chainId: ethereum
+                          type: lending
+                          status: active
+                          name: 'Aave V3 Lending'
+                          totalValueUSD: 12345.67
+                          suppliedTokens:
+                            - token: { symbol: USDC, address: 0x..., decimals: 6 }
+                              amount: '10000'
+                              amountFormatted: '10,000.00'
+                              valueUSD: 10000
+                          borrowedTokens:
+                            - token: { symbol: ETH, address: 0x..., decimals: 18 }
+                              amount: '1.0'
+                              amountFormatted: '1.0'
+                              valueUSD: 2345.67
+                          rewards: []
+                          apy: 0.03
+                          healthFactor: 1.8
+                          risk: low
+                          metadata: {}
+                      portfolioSummary:
+                        totalValueUSD: 12345.67
+                        positionCount: 1
+                        protocols: 1
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -71,6 +108,31 @@ paths:
       responses:
         '200':
           description: Positions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeFiPositionsResponse'
+              examples:
+                sample:
+                  summary: Uniswap V3 positions
+                  value:
+                    success: true
+                    data:
+                      positions:
+                        - id: 'eth:uniswap-v3:0xpool:0xuser'
+                          protocol: uniswap-v3
+                          chainId: ethereum
+                          type: liquidity_pool
+                          status: active
+                          name: 'UNI V3 LP'
+                          totalValueUSD: 5000
+                          suppliedTokens: []
+                          rewards: []
+                          metadata: { feeTier: 3000 }
+                      portfolioSummary:
+                        totalValueUSD: 5000
+                        positionCount: 1
+                        protocols: 1
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
