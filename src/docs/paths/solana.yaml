@@ -1,0 +1,32 @@
+paths:
+  /api/solana/{address}:
+    get:
+      tags: [Solana]
+      summary: Get Solana DeFi positions
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string }
+        - in: query
+          name: protocols
+          schema: { type: string }
+        - in: query
+          name: includeInactive
+          schema: { type: boolean }
+        - in: query
+          name: includeYield
+          schema: { type: boolean }
+        - in: query
+          name: includeRisk
+          schema: { type: boolean }
+        - in: query
+          name: includeAnalytics
+          schema: { type: boolean }
+        - in: query
+          name: minValue
+          schema: { type: number }
+      responses:
+        '200': { description: Solana positions }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }

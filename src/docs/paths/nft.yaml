@@ -1,0 +1,107 @@
+paths:
+  /api/nft/{address}:
+    get:
+      tags: [NFT]
+      summary: Get NFT portfolio
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: chains
+          schema:
+            type: string
+        - in: query
+          name: categories
+          schema:
+            type: string
+        - in: query
+          name: standards
+          schema:
+            type: string
+        - in: query
+          name: includeMetadata
+          schema:
+            type: boolean
+        - in: query
+          name: includeListings
+          schema:
+            type: boolean
+        - in: query
+          name: includeAnalytics
+          schema:
+            type: boolean
+        - in: query
+          name: forceRefresh
+          schema:
+            type: boolean
+        - in: query
+          name: minValue
+          schema:
+            type: number
+      responses:
+        '200':
+          description: NFT portfolio
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/nft/{address}/collection/{contractAddress}:
+    get:
+      tags: [NFT]
+      summary: Get NFT collection info
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string }
+        - in: path
+          name: contractAddress
+          required: true
+          schema: { type: string }
+        - in: query
+          name: chainId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: includeAnalytics
+          schema: { type: boolean }
+      responses:
+        '200': { description: Collection info }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/nft/{contractAddress}/{tokenId}:
+    get:
+      tags: [NFT]
+      summary: Get NFT metadata by contract and tokenId
+      parameters:
+        - in: path
+          name: contractAddress
+          required: true
+          schema: { type: string }
+        - in: path
+          name: tokenId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: chainId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Token metadata }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { description: NFT not found }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/nft/detectors:
+    get:
+      tags: [NFT]
+      summary: List registered NFT detectors
+      responses:
+        '200': { description: Detector list }

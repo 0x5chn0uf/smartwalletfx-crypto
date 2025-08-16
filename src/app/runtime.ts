@@ -17,60 +17,14 @@ import { SolanaProvider } from '@/services/providers/SolanaProvider';
 import type { DeFiPort } from '@/ports/DeFiPort';
 import type { NFTPort } from '@/ports/NFTPort';
 import type { SolanaPort } from '@/ports/SolanaPort';
+import type {
+  ServiceDependencies,
+  Runtime as RuntimeInterface,
+  RuntimeHealthStatus,
+  RuntimeState,
+} from '@/app/interfaces';
 
-/**
- * Core service dependencies container
- */
-export interface ServiceDependencies {
-  chainManager: ChainManager;
-  solanaProvider: SolanaProvider;
-  defiPort: DeFiPort;
-  nftPort: NFTPort;
-  solanaPort: SolanaPort;
-  eventBus: any; // TODO: Type this properly once EventBus interface is defined
-  workerManager: WorkerManager;
-  priceService: any; // TODO: Type this properly once PriceService interface is defined
-  asyncPortfolioService: AsyncPortfolioService;
-  costMonitoringService: CostMonitoringService;
-  runtimeConfig: Config;
-}
-
-/**
- * Runtime lifecycle management interface
- */
-export interface Runtime {
-  dependencies: ServiceDependencies;
-  start(config: Config): Promise<void>;
-  stop(): Promise<void>;
-  getHealthStatus(): RuntimeHealthStatus;
-}
-
-export interface RuntimeHealthStatus {
-  status: 'healthy' | 'degraded' | 'unhealthy';
-  services: {
-    redis: boolean;
-    chainManager: boolean;
-    eventBus: boolean;
-    workers: boolean;
-    defi: boolean;
-    nft: boolean;
-    solana: boolean;
-  };
-  timestamp: string;
-}
-
-/**
- * Runtime state management
- */
-export type RuntimeState =
-  | 'uninitialized'
-  | 'starting'
-  | 'running'
-  | 'stopping'
-  | 'stopped'
-  | 'error';
-
-class CryptoDataRuntime implements Runtime {
+class CryptoDataRuntime implements RuntimeInterface {
   private state: RuntimeState = 'uninitialized';
   private _dependencies: ServiceDependencies | null = null;
   private startTime: Date | null = null;
@@ -373,7 +327,7 @@ export function getRuntime(): CryptoDataRuntime {
  */
 export type {
   ServiceDependencies as ServiceDeps,
-  Runtime as RuntimeInterface,
+  RuntimeInterface as RuntimeInterface,
   RuntimeHealthStatus as RuntimeHealth,
   RuntimeState as RuntimeStateType,
 };

@@ -18,8 +18,6 @@ import type { HealthCheckResult } from '@/middleware/interfaces';
  * - Cache warming performance tracking
  */
 
-// HealthCheckResult moved to '@/types/monitoring'
-
 export class EnhancedMetricsMiddleware {
   private contextLogger = createContextualLogger({ component: 'EnhancedMetricsMiddleware' });
 

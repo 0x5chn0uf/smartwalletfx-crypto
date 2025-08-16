@@ -1,0 +1,79 @@
+paths:
+  /api/defi/{address}:
+    get:
+      tags: [DeFi]
+      summary: Get DeFi portfolio
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: chains
+          schema:
+            type: string
+          description: Comma-separated chain slugs
+        - in: query
+          name: protocols
+          schema:
+            type: string
+          description: Comma-separated protocol slugs
+        - in: query
+          name: includeInactive
+          schema:
+            type: boolean
+        - in: query
+          name: includeYield
+          schema:
+            type: boolean
+        - in: query
+          name: includeRisk
+          schema:
+            type: boolean
+        - in: query
+          name: minValue
+          schema:
+            type: number
+        - in: query
+          name: forceRefresh
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: DeFi portfolio
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/defi/{address}/protocols/{protocol}:
+    get:
+      tags: [DeFi]
+      summary: Get positions for a protocol
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: protocol
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: chains
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Positions
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: No positions for protocol
+        '500':
+          $ref: '#/components/responses/InternalError'
