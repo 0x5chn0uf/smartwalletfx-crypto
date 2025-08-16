@@ -1,0 +1,176 @@
+// DeFi Protocol Models
+// DeFi positions, protocol adapters, and yield tracking
+
+// DeFi Tokens - Tokens used in DeFi positions
+model DeFiToken {
+  id       String @id @default(cuid())
+  tokenId  String
+  isStable Boolean @default(false)
+  
+  // Relationships
+  token            Token             @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  suppliedPositions DeFiSuppliedToken[]
+  borrowedPositions DeFiBorrowedToken[]
+  collateralPositions DeFiCollateralToken[]
+  rewardPositions  DeFiRewardToken[]
+  
+  @@unique([tokenId])
+  @@map("defi_tokens")
+}
+
+// DeFi Positions - Core DeFi position data
+model DeFiPosition {
+  id          String @id @default(cuid())
+  walletId    String
+  protocol    String // DeFi protocol (aave-v3, uniswap-v3, etc.)
+  chainId     String
+  type        String // lending, borrowing, liquidity_pool, staking, etc.
+  status      String // active, inactive, at_risk, liquidated, closed
+  
+  // Position details
+  name         String
+  description  String?
+  url          String? // Protocol URL
+  positionId   String? // Protocol-specific position ID
+  
+  // Financial metrics
+  totalValueUSD Decimal @db.Decimal(20, 8)
+  netValueUSD   Decimal @db.Decimal(20, 8) // Total supplied - total borrowed
+  
+  // Risk metrics
+  healthFactor        Decimal? @db.Decimal(10, 6) // Lending protocols health factor
+  liquidationPrice    Decimal? @db.Decimal(20, 8) // Liquidation price
+  liquidationRisk     String   @default("low") // low, medium, high, critical
+  collateralRatio     Decimal? @db.Decimal(10, 6) // Collateral ratio
+  utilizationRate     Decimal? @db.Decimal(10, 6) // Utilization rate (0-1)
+  timeToLiquidation   Int?     // Seconds until liquidation risk
+  impermanentLoss     Decimal? @db.Decimal(10, 6) // For LP positions
+  
+  // Protocol-specific data (JSON)
+  protocolData Json @default("{}")
+  
+  // Metadata
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastUpdatedAt  DateTime @default(now())
+  lastActivityAt DateTime?
+  
+  // Relationships
+  wallet           UserWallet            @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  suppliedTokens   DeFiSuppliedToken[]
+  borrowedTokens   DeFiBorrowedToken[]
+  collateralTokens DeFiCollateralToken[]
+  rewards          DeFiRewardToken[]
+  yieldInfo        DeFiYieldInfo[]
+  
+  // Indexes
+  @@index([walletId])
+  @@index([protocol])
+  @@index([chainId])
+  @@index([type])
+  @@index([status])
+  @@index([totalValueUSD])
+  @@index([liquidationRisk])
+  @@index([lastUpdatedAt])
+  @@map("defi_positions")
+}
+
+// DeFi Supplied Tokens
+model DeFiSuppliedToken {
+  id               String @id @default(cuid())
+  positionId       String
+  defiTokenId      String
+  amount           String // Raw amount as string
+  amountFormatted  String // Human-readable amount
+  valueUSD         Decimal? @db.Decimal(20, 8)
+  
+  // Relationships
+  position  DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  defiToken DeFiToken    @relation(fields: [defiTokenId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([defiTokenId])
+  @@map("defi_supplied_tokens")
+}
+
+// DeFi Borrowed Tokens
+model DeFiBorrowedToken {
+  id               String @id @default(cuid())
+  positionId       String
+  defiTokenId      String
+  amount           String // Raw amount as string
+  amountFormatted  String // Human-readable amount
+  valueUSD         Decimal? @db.Decimal(20, 8)
+  
+  // Relationships
+  position  DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  defiToken DeFiToken    @relation(fields: [defiTokenId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([defiTokenId])
+  @@map("defi_borrowed_tokens")
+}
+
+// DeFi Collateral Tokens
+model DeFiCollateralToken {
+  id               String  @id @default(cuid())
+  positionId       String
+  defiTokenId      String
+  amount           String  // Raw amount as string
+  amountFormatted  String  // Human-readable amount
+  valueUSD         Decimal? @db.Decimal(20, 8)
+  isCollateral     Boolean @default(true)
+  
+  // Relationships
+  position  DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  defiToken DeFiToken    @relation(fields: [defiTokenId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([defiTokenId])
+  @@map("defi_collateral_tokens")
+}
+
+// DeFi Reward Tokens
+model DeFiRewardToken {
+  id               String   @id @default(cuid())
+  positionId       String
+  defiTokenId      String
+  amount           String   // Raw amount as string
+  amountFormatted  String   // Human-readable amount
+  valueUSD         Decimal? @db.Decimal(20, 8)
+  apy              Decimal? @db.Decimal(10, 6) // Reward APY
+  
+  // Vesting information
+  isVesting        Boolean  @default(false)
+  vestingPeriod    Int?     // Vesting period in seconds
+  claimableAt      DateTime?
+  
+  // Relationships
+  position  DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  defiToken DeFiToken    @relation(fields: [defiTokenId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([defiTokenId])
+  @@index([claimableAt])
+  @@map("defi_reward_tokens")
+}
+
+// DeFi Yield Information
+model DeFiYieldInfo {
+  id            String  @id @default(cuid())
+  positionId    String
+  apy           Decimal @db.Decimal(10, 6) // Annual Percentage Yield
+  apr           Decimal @db.Decimal(10, 6) // Annual Percentage Rate
+  dailyRate     Decimal? @db.Decimal(10, 8) // Daily rate
+  source        String  // lending, farming, staking, fees, rewards
+  isCompounding Boolean @default(false)
+  calculatedAt  DateTime @default(now())
+  
+  // Relationships
+  position DeFiPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  
+  @@index([positionId])
+  @@index([source])
+  @@index([calculatedAt])
+  @@map("defi_yield_info")
+}

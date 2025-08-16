@@ -1,0 +1,126 @@
+// Core entities - User wallets, tokens, and token balances
+// These are the fundamental building blocks used across all domains
+
+// User Wallets - Track user wallet addresses across different chains
+model UserWallet {
+  id        String   @id @default(cuid())
+  address   String   // Wallet address
+  chainId   String   // Chain identifier (supports both numeric and string IDs like 'solana')
+  name      String?  // Optional name for the wallet
+  isActive  Boolean  @default(true)
+  isDeleted Boolean  @default(false) // Soft deletion
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastSyncAt DateTime?
+  
+  // Relationships
+  portfolios      Portfolio[]
+  defiPositions   DeFiPosition[]
+  nftTokens       NFTToken[]
+  transactions    Transaction[]
+  tokenBalances   TokenBalance[]
+  
+  // Indexes
+  @@unique([address, chainId])
+  @@index([address])
+  @@index([chainId])
+  @@index([isActive, isDeleted])
+  @@index([lastSyncAt])
+  @@map("user_wallets")
+}
+
+// Tokens - Master token registry across all chains
+model Token {
+  id          String  @id @default(cuid())
+  address     String  // Token contract address
+  chainId     String  // Chain identifier
+  symbol      String  // Token symbol (e.g., "ETH", "USDC")
+  name        String  // Token name (e.g., "Ethereum", "USD Coin")
+  decimals    Int     // Token decimals
+  logoUrl     String? // Token logo URL
+  coingeckoId String? // CoinGecko ID for price data
+  isNative    Boolean @default(false) // Is this a native token (ETH, SOL, etc.)
+  isStable    Boolean @default(false) // Is this a stablecoin
+  isActive    Boolean @default(true)
+  isDeleted   Boolean @default(false)
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relationships
+  tokenBalances     TokenBalance[]
+  priceCache        PriceCache[]
+  defiTokens        DeFiToken[]
+  transactionTokens TransactionToken[]
+  nftCollections    NFTCollection[] // For NFT collection tokens
+  
+  // Indexes
+  @@unique([address, chainId])
+  @@index([symbol])
+  @@index([chainId])
+  @@index([isActive, isDeleted])
+  @@index([coingeckoId])
+  @@map("tokens")
+}
+
+// Token Balances - Current token balances for wallets
+model TokenBalance {
+  id               String   @id @default(cuid())
+  walletId         String
+  tokenId          String
+  balance          String   // Raw balance as string (supports large numbers)
+  balanceFormatted String   // Human-readable formatted balance
+  balanceUSD       Decimal? @db.Decimal(20, 8) // USD value
+  priceUSD         Decimal? @db.Decimal(20, 8) // Price per token in USD
+  change24h        Decimal? @db.Decimal(10, 4) // 24h price change percentage
+  blockNumber      BigInt?  // Block number when balance was fetched
+  isDeleted        Boolean  @default(false) // Soft deletion
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastUpdated DateTime @default(now())
+  
+  // Relationships
+  wallet UserWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  token  Token      @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@unique([walletId, tokenId])
+  @@index([walletId])
+  @@index([tokenId])
+  @@index([lastUpdated])
+  @@index([balanceUSD])
+  @@map("token_balances")
+}
+
+// Price Cache - Cache token prices to reduce API calls
+model PriceCache {
+  id        String   @id @default(cuid())
+  tokenId   String
+  priceUSD  Decimal  @db.Decimal(20, 8)
+  change24h Decimal? @db.Decimal(10, 4)
+  change7d  Decimal? @db.Decimal(10, 4)
+  change30d Decimal? @db.Decimal(10, 4)
+  volume24h Decimal? @db.Decimal(20, 8)
+  marketCap Decimal? @db.Decimal(20, 8)
+  source    String   // Price data source (coingecko, dexscreener, etc.)
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime // Cache expiration time
+  
+  // Relationships
+  token Token @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@unique([tokenId, source])
+  @@index([tokenId])
+  @@index([expiresAt])
+  @@index([source])
+  @@map("price_cache")
+}

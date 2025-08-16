@@ -1,0 +1,85 @@
+// Transaction Models
+// Blockchain transactions and token transfers
+
+// Transactions
+model Transaction {
+  id              String @id @default(cuid())
+  walletId        String
+  hash            String // Transaction hash
+  chainId         String
+  
+  // Transaction details
+  from        String
+  to          String?
+  value       String  // Value in native currency (as string)
+  valueUSD    Decimal? @db.Decimal(20, 8)
+  gasPrice    String? // Gas price (as string)
+  gasUsed     String? // Gas used (as string)
+  gasLimit    String? // Gas limit (as string)
+  gasFeeUSD   Decimal? @db.Decimal(20, 8)
+  status      String  // pending, confirmed, failed
+  blockNumber BigInt?
+  blockHash   String?
+  timestamp   DateTime
+  
+  // Transaction type classification
+  type         String? // transfer, swap, mint, contract_interaction, etc.
+  category     String? // defi, nft, token_transfer, etc.
+  
+  // Additional metadata (JSON)
+  metadata Json @default("{}")
+  
+  // Status tracking
+  isProcessed Boolean @default(false)
+  isActive    Boolean @default(true)
+  isDeleted   Boolean @default(false)
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relationships
+  wallet         UserWallet         @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  tokenTransfers TransactionToken[]
+  
+  // Indexes
+  @@unique([hash, chainId])
+  @@index([walletId])
+  @@index([hash])
+  @@index([chainId])
+  @@index([from])
+  @@index([to])
+  @@index([status])
+  @@index([timestamp])
+  @@index([blockNumber])
+  @@index([type])
+  @@index([category])
+  @@index([isProcessed])
+  @@index([isActive, isDeleted])
+  @@map("transactions")
+}
+
+// Transaction Token Transfers
+model TransactionToken {
+  id               String @id @default(cuid())
+  transactionId    String
+  tokenId          String
+  from             String
+  to               String
+  amount           String  // Raw amount as string
+  amountFormatted  String  // Human-readable amount
+  amountUSD        Decimal? @db.Decimal(20, 8)
+  logIndex         Int?    // Log index in transaction
+  
+  // Relationships
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  token       Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@index([transactionId])
+  @@index([tokenId])
+  @@index([from])
+  @@index([to])
+  @@index([amountUSD])
+  @@map("transaction_tokens")
+}

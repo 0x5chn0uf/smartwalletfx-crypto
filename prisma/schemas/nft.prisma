@@ -1,0 +1,220 @@
+// NFT Models
+// NFT collections, tokens, ownership tracking, and marketplace listings
+
+// NFT Collections
+model NFTCollection {
+  id              String  @id @default(cuid())
+  chainId         String  // Chain identifier
+  contractAddress String  // NFT contract address
+  standard        String  // erc-721, erc-1155, spl-token, metaplex
+  
+  // Basic information
+  name         String
+  symbol       String
+  description  String?
+  slug         String  // URL-friendly slug
+  
+  // Visual assets
+  image         String? // Collection image
+  bannerImage   String? // Banner image
+  featuredImage String? // Featured image
+  
+  // Collection metadata
+  category    String  @default("unknown") // art, collectibles, gaming, etc.
+  verified    Boolean @default(false)
+  isActive    Boolean @default(true)
+  isDeleted   Boolean @default(false)
+  
+  // Statistics
+  totalSupply     Int      @default(0)
+  ownersCount     Int      @default(0)
+  listedCount     Int      @default(0)
+  floorPriceUSD   Decimal? @db.Decimal(20, 8)
+  volumeTotalUSD  Decimal? @db.Decimal(20, 8)
+  volume24hUSD    Decimal? @db.Decimal(20, 8)
+  volume7dUSD     Decimal? @db.Decimal(20, 8)
+  volume30dUSD    Decimal? @db.Decimal(20, 8)
+  marketCapUSD    Decimal? @db.Decimal(20, 8)
+  averagePriceUSD Decimal? @db.Decimal(20, 8)
+  salesCount24h   Int      @default(0)
+  salesCount7d    Int      @default(0)
+  salesCount30d   Int      @default(0)
+  
+  // Creator information
+  creatorAddress   String?
+  creatorEarnings  Decimal? @db.Decimal(5, 4) // Royalty percentage
+  
+  // Social links (JSON)
+  socialLinks Json @default("{}")
+  
+  // Additional metadata (JSON)
+  metadata Json @default("{}")
+  
+  // External integration
+  tokenId String? // If collection has a token
+  
+  // Metadata
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastUpdatedAt DateTime @default(now())
+  
+  // Relationships
+  token     Token?     @relation(fields: [tokenId], references: [id])
+  nftTokens NFTToken[]
+  listings  NFTListing[]
+  
+  // Indexes
+  @@unique([chainId, contractAddress])
+  @@index([chainId])
+  @@index([contractAddress])
+  @@index([slug])
+  @@index([category])
+  @@index([verified])
+  @@index([floorPriceUSD])
+  @@index([volume24hUSD])
+  @@index([isActive, isDeleted])
+  @@map("nft_collections")
+}
+
+// NFT Tokens
+model NFTToken {
+  id              String @id @default(cuid())
+  walletId        String
+  collectionId    String
+  chainId         String
+  contractAddress String
+  tokenId         String // NFT token ID
+  standard        String // erc-721, erc-1155, spl-token, metaplex
+  
+  // Ownership
+  owner String // Current owner address
+  
+  // Metadata
+  name         String
+  description  String?
+  image        String? // NFT image URL
+  imageHighRes String? // High resolution image
+  animationUrl String? // Animation/video URL
+  externalUrl  String? // External URL
+  tokenUri     String? // Token URI
+  
+  // Attributes (JSON array)
+  attributes Json @default("[]")
+  
+  // Market data
+  lastSalePriceUSD    Decimal? @db.Decimal(20, 8)
+  floorPriceUSD       Decimal? @db.Decimal(20, 8)
+  estimatedValueUSD   Decimal? @db.Decimal(20, 8)
+  listingPriceUSD     Decimal? @db.Decimal(20, 8)
+  isListed            Boolean  @default(false)
+  
+  // Rarity and analytics
+  rarityRank  Int?     // Rank within collection
+  rarityScore Decimal? @db.Decimal(10, 4) // Rarity score
+  rarityTier  String?  // common, uncommon, rare, epic, legendary, mythic
+  
+  // Status
+  isActive  Boolean @default(true)
+  isDeleted Boolean @default(false)
+  
+  // Additional metadata (JSON)
+  metadata Json @default("{}")
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  lastUpdatedAt     DateTime @default(now())
+  lastTransferredAt DateTime?
+  
+  // Relationships
+  wallet     UserWallet    @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  collection NFTCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  ownership  NFTOwnership[]
+  listings   NFTListing[]
+  
+  // Indexes
+  @@unique([chainId, contractAddress, tokenId])
+  @@index([walletId])
+  @@index([collectionId])
+  @@index([chainId])
+  @@index([contractAddress])
+  @@index([tokenId])
+  @@index([owner])
+  @@index([isListed])
+  @@index([rarityRank])
+  @@index([lastSalePriceUSD])
+  @@index([isActive, isDeleted])
+  @@index([lastTransferredAt])
+  @@map("nft_tokens")
+}
+
+// NFT Ownership History
+model NFTOwnership {
+  id              String @id @default(cuid())
+  nftTokenId      String
+  owner           String // Owner address
+  acquiredAt      DateTime
+  acquiredPriceUSD Decimal? @db.Decimal(20, 8)
+  transferType    String // mint, purchase, transfer, airdrop
+  transactionHash String
+  blockNumber     BigInt
+  
+  // Relationships
+  nftToken NFTToken @relation(fields: [nftTokenId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@index([nftTokenId])
+  @@index([owner])
+  @@index([acquiredAt])
+  @@index([transferType])
+  @@index([transactionHash])
+  @@map("nft_ownership")
+}
+
+// NFT Listings
+model NFTListing {
+  id               String @id @default(cuid())
+  nftTokenId       String?
+  collectionId     String?
+  chainId          String
+  marketplace      String // opensea, magic-eden, blur, etc.
+  
+  // NFT details (for listings without token record)
+  contractAddress String
+  tokenId         String
+  
+  // Listing details
+  seller      String // Seller address
+  priceUSD    Decimal  @db.Decimal(20, 8)
+  currency    String   // ETH, SOL, USDC, etc.
+  startTime   DateTime
+  endTime     DateTime?
+  listingType String   // fixed-price, auction, dutch-auction
+  
+  // Status
+  status String @default("active") // active, sold, cancelled, expired
+  
+  // External data
+  externalUrl String? // Marketplace URL
+  
+  // Metadata
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastUpdatedAt DateTime @default(now())
+  
+  // Relationships
+  nftToken   NFTToken?     @relation(fields: [nftTokenId], references: [id])
+  collection NFTCollection? @relation(fields: [collectionId], references: [id])
+  
+  // Indexes
+  @@index([nftTokenId])
+  @@index([collectionId])
+  @@index([chainId])
+  @@index([marketplace])
+  @@index([contractAddress, tokenId])
+  @@index([seller])
+  @@index([status])
+  @@index([priceUSD])
+  @@index([startTime, endTime])
+  @@map("nft_listings")
+}

@@ -1,0 +1,12 @@
+// Base Prisma configuration
+// Contains generator, datasource, and shared configuration
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "fullTextIndex"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

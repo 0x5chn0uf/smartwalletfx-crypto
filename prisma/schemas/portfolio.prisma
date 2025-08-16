@@ -1,0 +1,43 @@
+// Portfolio Management Models
+// Aggregated portfolio data and performance tracking
+
+// Portfolio - Aggregated portfolio data for wallets
+model Portfolio {
+  id                   String  @id @default(cuid())
+  walletId             String
+  chainId              String  // Chain this portfolio is for
+  totalValueUSD        Decimal @db.Decimal(20, 8)
+  tokenCount           Int     @default(0)
+  diversificationScore Decimal @db.Decimal(5, 2) // 0-100 diversification score
+  isDeleted            Boolean @default(false) // Soft deletion
+  
+  // Performance metrics
+  value24hAgo    Decimal? @db.Decimal(20, 8)
+  value7dAgo     Decimal? @db.Decimal(20, 8)
+  value30dAgo    Decimal? @db.Decimal(20, 8)
+  change24hUSD   Decimal? @db.Decimal(20, 8)
+  change7dUSD    Decimal? @db.Decimal(20, 8)
+  change30dUSD   Decimal? @db.Decimal(20, 8)
+  change24hPct   Decimal? @db.Decimal(10, 4)
+  change7dPct    Decimal? @db.Decimal(10, 4)
+  change30dPct   Decimal? @db.Decimal(10, 4)
+  
+  // Metadata
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lastSyncAt   DateTime @default(now())
+  cacheKey     String?  // Cache key for portfolio data
+  fetchTimeMs  Int?     // Time taken to fetch portfolio data
+  cacheHitRate Decimal? @db.Decimal(5, 4) // Cache hit rate for this portfolio
+  
+  // Relationships
+  wallet UserWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  
+  // Indexes
+  @@unique([walletId, chainId])
+  @@index([walletId])
+  @@index([chainId])
+  @@index([totalValueUSD])
+  @@index([lastSyncAt])
+  @@map("portfolios")
+}

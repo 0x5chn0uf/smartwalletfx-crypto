@@ -1,6 +1,28 @@
-// Prisma schema file for SmartWalletFX Crypto Data Service
-// This file defines the database schema for portfolio management,
-// DeFi positions, NFT collections, and transaction tracking
+// SmartWalletFX Crypto Data Service - Combined Prisma Schema
+// 
+// This file is auto-generated from modular schema files.
+// DO NOT EDIT DIRECTLY - Edit files in prisma/schemas/ instead
+// 
+// To regenerate: npm run schema:combine
+//
+// Schema Organization:
+// - base.prisma: Generator and datasource configuration
+// - core.prisma: Core entities (UserWallet, Token, TokenBalance, PriceCache)  
+// - portfolio.prisma: Portfolio management and aggregation
+// - defi.prisma: DeFi positions, protocols, and yield tracking
+// - nft.prisma: NFT collections, tokens, and marketplace data
+// - transactions.prisma: Blockchain transactions and token transfers
+// - analytics.prisma: Analytics events, caching, and system health
+//
+// Generated: 2025-08-16T14:22:49.322Z
+
+
+// ============================================================================
+// BASE SCHEMA
+// ============================================================================
+
+// Base Prisma configuration
+// Contains generator, datasource, and shared configuration
 
 generator client {
   provider = "prisma-client-js"
@@ -13,8 +35,11 @@ datasource db {
 }
 
 // ============================================================================
-// CORE ENTITIES
+// CORE SCHEMA
 // ============================================================================
+
+// Core entities - User wallets, tokens, and token balances
+// These are the fundamental building blocks used across all domains
 
 // User Wallets - Track user wallet addresses across different chains
 model UserWallet {
@@ -78,7 +103,6 @@ model Token {
   @@index([chainId])
   @@index([isActive, isDeleted])
   @@index([coingeckoId])
-  // @@fulltext([name, symbol]) // Removed - not supported by PostgreSQL
   @@map("tokens")
 }
 
@@ -142,8 +166,11 @@ model PriceCache {
 }
 
 // ============================================================================
-// PORTFOLIO MANAGEMENT
+// PORTFOLIO SCHEMA
 // ============================================================================
+
+// Portfolio Management Models
+// Aggregated portfolio data and performance tracking
 
 // Portfolio - Aggregated portfolio data for wallets
 model Portfolio {
@@ -187,8 +214,11 @@ model Portfolio {
 }
 
 // ============================================================================
-// DEFI POSITIONS
+// DEFI SCHEMA
 // ============================================================================
+
+// DeFi Protocol Models
+// DeFi positions, protocol adapters, and yield tracking
 
 // DeFi Tokens - Tokens used in DeFi positions
 model DeFiToken {
@@ -261,7 +291,6 @@ model DeFiPosition {
   @@index([totalValueUSD])
   @@index([liquidationRisk])
   @@index([lastUpdatedAt])
-  // @@fulltext([name, description]) // Removed - not supported by PostgreSQL
   @@map("defi_positions")
 }
 
@@ -366,8 +395,11 @@ model DeFiYieldInfo {
 }
 
 // ============================================================================
-// NFT COLLECTIONS AND TOKENS
+// NFT SCHEMA
 // ============================================================================
+
+// NFT Models
+// NFT collections, tokens, ownership tracking, and marketplace listings
 
 // NFT Collections
 model NFTCollection {
@@ -441,7 +473,6 @@ model NFTCollection {
   @@index([floorPriceUSD])
   @@index([volume24hUSD])
   @@index([isActive, isDeleted])
-  // @@fulltext([name, symbol, description]) // Removed - not supported by PostgreSQL
   @@map("nft_collections")
 }
 
@@ -514,7 +545,6 @@ model NFTToken {
   @@index([lastSalePriceUSD])
   @@index([isActive, isDeleted])
   @@index([lastTransferredAt])
-  // @@fulltext([name, description]) // Removed - not supported by PostgreSQL
   @@map("nft_tokens")
 }
 
@@ -590,8 +620,11 @@ model NFTListing {
 }
 
 // ============================================================================
-// TRANSACTIONS
+// TRANSACTIONS SCHEMA
 // ============================================================================
+
+// Transaction Models
+// Blockchain transactions and token transfers
 
 // Transactions
 model Transaction {
@@ -677,8 +710,11 @@ model TransactionToken {
 }
 
 // ============================================================================
-// ANALYTICS AND CACHING
+// ANALYTICS SCHEMA
 // ============================================================================
+
+// Analytics and System Models
+// Performance monitoring, caching, and system health tracking
 
 // Analytics Events - Track user interactions and system events
 model AnalyticsEvent {

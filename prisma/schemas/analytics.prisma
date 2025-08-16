@@ -1,0 +1,92 @@
+// Analytics and System Models
+// Performance monitoring, caching, and system health tracking
+
+// Analytics Events - Track user interactions and system events
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  eventType String   // portfolio_sync, defi_update, nft_scan, etc.
+  walletId  String?
+  chainId   String?
+  
+  // Event data (JSON)
+  eventData Json @default("{}")
+  
+  // Performance metrics
+  duration    Int?     // Duration in milliseconds
+  success     Boolean  @default(true)
+  errorCode   String?
+  errorMessage String?
+  
+  // Context
+  userAgent   String?
+  ipAddress   String?
+  sessionId   String?
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  
+  // Indexes
+  @@index([eventType])
+  @@index([walletId])
+  @@index([chainId])
+  @@index([createdAt])
+  @@index([success])
+  @@map("analytics_events")
+}
+
+// Cache Metadata - Track cache performance and invalidation
+model CacheMetadata {
+  id        String   @id @default(cuid())
+  cacheKey  String   @unique
+  category  String   // portfolio, defi, nft, price, etc.
+  walletId  String?
+  chainId   String?
+  
+  // Cache metrics
+  hitCount     Int      @default(0)
+  missCount    Int      @default(0)
+  size         Int?     // Size in bytes
+  lastHit      DateTime?
+  lastMiss     DateTime?
+  
+  // Lifecycle
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime
+  
+  // Indexes
+  @@index([category])
+  @@index([walletId])
+  @@index([chainId])
+  @@index([expiresAt])
+  @@index([lastHit])
+  @@map("cache_metadata")
+}
+
+// System Health - Track system performance and health
+model SystemHealth {
+  id        String   @id @default(cuid())
+  component String   // database, redis, alchemy, etc.
+  status    String   // healthy, degraded, unhealthy
+  
+  // Metrics
+  responseTime  Int?     // Response time in milliseconds
+  errorRate     Decimal? @db.Decimal(5, 4) // Error rate (0-1)
+  uptime        Decimal? @db.Decimal(5, 4) // Uptime percentage (0-1)
+  
+  // Additional data (JSON)
+  metadata Json @default("{}")
+  
+  // Issues
+  issues Json @default("[]") // Array of current issues
+  
+  // Metadata
+  createdAt      DateTime @default(now())
+  lastCheckedAt  DateTime @default(now())
+  
+  // Indexes
+  @@unique([component])
+  @@index([status])
+  @@index([lastCheckedAt])
+  @@map("system_health")
+}
