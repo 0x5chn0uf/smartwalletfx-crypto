@@ -4,15 +4,8 @@
 import { Prisma } from '@prisma/client';
 import { prisma, dbUtils } from '@/utils/database';
 import { logger } from '@/utils/logger';
-import {
-  AnalyticsEventCreateSchema,
-} from './validators';
-import {
-  QueryOptions,
-  DatabaseError,
-  NotFoundError,
-  BatchResult,
-} from './types';
+import { AnalyticsEventCreateSchema } from './validators';
+import { QueryOptions, DatabaseError, NotFoundError, BatchResult } from './types';
 
 export class AnalyticsModel {
   /**

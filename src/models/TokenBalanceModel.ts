@@ -4,17 +4,8 @@
 import { Prisma } from '@prisma/client';
 import { prisma, dbUtils } from '@/utils/database';
 import { logger } from '@/utils/logger';
-import {
-  TokenBalanceCreateSchema,
-  TokenBalanceUpdateSchema,
-} from './validators';
-import {
-  QueryOptions,
-  DatabaseError,
-  NotFoundError,
-  ConflictError,
-  BatchResult,
-} from './types';
+import { TokenBalanceCreateSchema, TokenBalanceUpdateSchema } from './validators';
+import { QueryOptions, DatabaseError, NotFoundError, ConflictError, BatchResult } from './types';
 
 export class TokenBalanceModel {
   /**

@@ -3,10 +3,7 @@
 
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { 
-  TransactionCreateSchema, 
-  TransactionUpdateSchema 
-} from './validators';
+import { TransactionCreateSchema, TransactionUpdateSchema } from './validators';
 
 // Import validation schemas
 const CuidSchema = z.string().cuid('Invalid ID format');
@@ -372,7 +369,6 @@ export interface BatchResult<T> {
 // ============================================================================
 // NOTE: Validation schemas moved to validators.ts for centralized management
 // ============================================================================
-
 
 // ============================================================================
 // ERROR TYPES

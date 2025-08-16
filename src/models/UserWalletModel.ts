@@ -4,10 +4,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma, dbUtils } from '@/utils/database';
 import { logger } from '@/utils/logger';
-import {
-  UserWalletCreateSchema,
-  UserWalletUpdateSchema,
-} from './validators';
+import { UserWalletCreateSchema, UserWalletUpdateSchema } from './validators';
 import {
   UserWalletWithRelations,
   QueryOptions,
