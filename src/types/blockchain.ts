@@ -137,6 +137,8 @@ export interface ProviderResponse<T> {
     requestId: string;
     cacheTtl?: number;
     cost?: number; // Estimated API cost in USD
+    attempts?: number; // Number of retry attempts made
+    totalTime?: number; // Total time including retries
   };
 }
 
@@ -166,6 +168,9 @@ export interface ChainProvider {
   isValidAddress(address: string): boolean;
   formatAddress(address: string): string;
   getExplorerUrl(hash: string): string;
+  
+  // Lifecycle methods
+  stop?(): Promise<void>;
 }
 
 // Provider configuration

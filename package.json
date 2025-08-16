@@ -16,6 +16,7 @@
     "test:e2e": "jest --config jest.e2e.config.js",
     "test:unit": "jest --testPathPattern=tests/unit",
     "test:integration": "jest --testPathPattern=tests/integration",
+    "test:edge-cases": "jest tests/edge-cases",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
@@ -35,6 +36,17 @@
     "docker:compose:logs": "docker-compose logs -f crypto-data-service",
     "env:validate": "tsx scripts/validate-env.ts",
     "health:check": "curl -f http://localhost:3000/health || exit 1",
+    "load-test": "tsx scripts/load-test.ts",
+    "load-test:stress": "tsx scripts/load-test.ts stress",
+    "load-test:memory": "tsx scripts/load-test.ts memory",
+    "load-test:spike": "tsx scripts/load-test.ts spike",
+    "benchmark": "tsx --expose-gc scripts/benchmark.ts",
+    "profile": "tsx scripts/performance-profiler.ts profile",
+    "profile:load": "tsx scripts/performance-profiler.ts load",
+    "profile:memory": "tsx scripts/performance-profiler.ts memory",
+    "monitoring:setup": "chmod +x monitoring/setup-monitoring.sh && ./monitoring/setup-monitoring.sh",
+    "monitoring:teardown": "kubectl delete namespace monitoring --ignore-not-found=true",
+    "production:check": "tsx scripts/production-readiness-check.ts",
     "prepare": "husky install",
     "typecheck:api": "tsc -p tsconfig.api.json --noEmit",
     "build:api": "tsc -p tsconfig.api.json && tsc-alias -p tsconfig.api.json"
@@ -80,7 +92,6 @@
     "swagger-ui-express": "^5.0.0",
     "uuid": "^9.0.1",
     "viem": "^2.33.3",
-    "ws": "^8.16.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
@@ -101,6 +112,7 @@
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.1.2",
+    "husky": "^9.0.11",
     "jest": "^29.7.0",
     "nodemon": "^3.0.2",
     "prettier": "^3.1.1",
@@ -109,7 +121,9 @@
     "ts-jest": "^29.1.1",
     "tsc-alias": "^1.8.8",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "node-fetch": "^3.3.2",
+    "@types/node-fetch": "^2.6.9"
   },
   "overrides": {
     "ws": "^8.17.1",

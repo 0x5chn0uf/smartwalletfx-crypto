@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { logger } from '@/utils/logger';
 import { ChainId } from '@/types/blockchain';
 import { NFTCategory, NFTStandard } from '@/types/nft';
-import { BaseRouteFactory, RouteFactory } from './routeFactory';
+import { BaseRouteFactory } from './routeFactory';
+import type { RouteFactory } from './interfaces';
 import { ServiceDeps as ServiceDependencies } from '@/app/runtime';
 import { NFTUseCase } from '@/app/usecases/NFTUseCase';
 

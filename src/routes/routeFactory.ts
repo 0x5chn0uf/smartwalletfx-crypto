@@ -1,22 +1,6 @@
 import { Router } from 'express';
 import { ServiceDeps as ServiceDependencies } from '@/app/runtime';
-
-/**
- * Route factory interface for dependency injection
- */
-export interface RouteFactory {
-  (dependencies: ServiceDependencies): Router;
-}
-
-/**
- * Route factory configuration
- */
-export interface RouteFactoryConfig {
-  // Add any shared configuration for routes
-  enableMetrics?: boolean;
-  enableCaching?: boolean;
-  enableValidation?: boolean;
-}
+import type { RouteFactoryConfig, RouteFactory } from './interfaces';
 
 /**
  * Base route factory utility with common functionality

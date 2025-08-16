@@ -1,4 +1,4 @@
-import { IntegrationEvent } from '../ports/EventBusPort';
+import { IntegrationEvent } from '@/ports/EventBusPort';
 import { ChainId } from '@/types/blockchain';
 import { DeFiProtocol, DeFiPosition, DeFiPortfolioSummary } from '@/types/defi';
 
@@ -18,6 +18,8 @@ export const DEFI_EVENT_TYPES = {
  */
 export interface DeFiPositionsRequestedV1 extends IntegrationEvent {
   type: typeof DEFI_EVENT_TYPES.POSITIONS_REQUESTED;
+  payload: any;
+  aggregateId: string;
   data: {
     /** Wallet address to fetch positions for */
     address: string;

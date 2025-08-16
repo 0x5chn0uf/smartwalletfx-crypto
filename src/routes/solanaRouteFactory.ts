@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { logger } from '@/utils/logger';
-import { BaseRouteFactory, RouteFactory } from './routeFactory';
+import { BaseRouteFactory } from './routeFactory';
+import type { RouteFactory } from './interfaces';
 import { ServiceDeps as ServiceDependencies } from '@/app/runtime';
 import { SolanaUseCase } from '@/app/usecases/SolanaUseCase';
 import { ErrorCode } from '@/utils/errorCatalog';

@@ -1,13 +1,19 @@
 import { Queue, Worker, Job, QueueOptions, WorkerOptions, JobsOptions } from 'bullmq';
-import { EventBusPort, EventHandler, SubscriptionOptions, EventBusHealth, EventBusConfig } from '@/ports/EventBusPort';
-import { DomainEvent, EventMetadata } from '@/events/types';
+import {
+  EventBusPort,
+  EventHandler,
+  EventBusConfig,
+  IntegrationEvent,
+  PublishOptions,
+  EventSubscription,
+} from '@/ports/EventBusPort';
 import { redisManager } from '@/utils/redis';
 import { logger } from '@/utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
  * BullMQ Event Bus Adapter
- * 
+ *
  * Production-ready event bus implementation using BullMQ and Redis.
  * Provides persistent queues, retry policies, dead letter queues,
  * and distributed processing capabilities.
@@ -15,18 +21,14 @@ import { v4 as uuidv4 } from 'uuid';
 export class BullMQEventBusAdapter implements EventBusPort {
   private queues: Map<string, Queue> = new Map();
   private workers: Map<string, Worker> = new Map();
-  private subscriptions: Map<string, SubscriptionInfo> = new Map();
+  private subscriptions: Map<string, any> = new Map();
   private config: EventBusConfig;
   private isShuttingDown = false;
   private readonly redisConnection;
 
   constructor(config: Partial<EventBusConfig> = {}) {
     this.config = {
-      defaultRetries: 3,
-      defaultRetryDelay: 5000,
-      defaultConcurrency: 5,
-      enableDLQ: true,
-      healthCheckInterval: 30000,
+      adapter: 'bullmq',
       ...config,
     };
 
@@ -44,22 +46,18 @@ export class BullMQEventBusAdapter implements EventBusPort {
     });
   }
 
-  async publish<T extends DomainEvent>(event: T, metadata?: EventMetadata): Promise<void> {
+  async initialize(): Promise<void> {
+    // Nothing to do here, connection is handled by redisManager
+  }
+
+  async publish(event: IntegrationEvent, options?: PublishOptions): Promise<void> {
     if (this.isShuttingDown) {
       throw new Error('Event bus is shutting down');
     }
 
-    const eventMetadata: EventMetadata = {
-      source: 'BullMQEventBus',
-      correlationId: uuidv4(),
-      priority: 'medium',
-      retryCount: 0,
-      ...metadata,
-    };
-
     const queueName = this.getQueueName(event.type);
     let queue = this.queues.get(queueName);
-    
+
     if (!queue) {
       queue = await this.createQueue(queueName);
     }
@@ -68,23 +66,19 @@ export class BullMQEventBusAdapter implements EventBusPort {
       const jobOptions: JobsOptions = {
         removeOnComplete: 100, // Keep last 100 completed jobs
         removeOnFail: 50, // Keep last 50 failed jobs
-        attempts: this.config.defaultRetries + 1,
+        attempts: options?.maxRetries ? options.maxRetries + 1 : 4,
         backoff: {
           type: 'exponential',
-          delay: this.config.defaultRetryDelay,
+          delay: 5000,
         },
-        priority: this.getPriority(eventMetadata.priority),
+        priority: options?.priority,
+        jobId: options?.idempotencyKey,
       };
-
-      if (eventMetadata.ttl) {
-        (jobOptions as any).ttl = eventMetadata.ttl * 1000; // Convert to milliseconds
-      }
 
       await queue.add(
         event.type,
         {
           event,
-          metadata: eventMetadata,
         },
         jobOptions
       );
@@ -93,9 +87,7 @@ export class BullMQEventBusAdapter implements EventBusPort {
         eventType: event.type,
         eventId: event.id,
         queueName,
-        metadata: eventMetadata,
       });
-
     } catch (error) {
       logger.error('Failed to publish event to BullMQ', {
         eventType: event.type,
@@ -107,25 +99,23 @@ export class BullMQEventBusAdapter implements EventBusPort {
     }
   }
 
-  async subscribe<T extends DomainEvent>(
+  async publishBatch(events: IntegrationEvent[], options?: PublishOptions): Promise<void> {
+    for (const event of events) {
+      await this.publish(event, options);
+    }
+  }
+
+  async subscribe(
     eventType: string,
-    handler: EventHandler<T>,
-    options: SubscriptionOptions = {}
+    handler: EventHandler,
+    options?: EventSubscription['options']
   ): Promise<string> {
     if (this.isShuttingDown) {
       throw new Error('Event bus is shutting down');
     }
 
     const subscriptionId = uuidv4();
-    const queueName = options.queue || this.getQueueName(eventType);
-    const subscriptionOptions = {
-      maxRetries: this.config.defaultRetries,
-      retryDelay: this.config.defaultRetryDelay,
-      concurrency: this.config.defaultConcurrency,
-      enableDLQ: this.config.enableDLQ,
-      queue: queueName,
-      ...options,
-    };
+    const queueName = this.getQueueName(eventType);
 
     // Ensure queue exists
     let queue = this.queues.get(queueName);
@@ -134,19 +124,14 @@ export class BullMQEventBusAdapter implements EventBusPort {
     }
 
     // Create worker for this subscription
-    const worker = await this.createWorker(
-      queueName,
-      eventType,
-      handler,
-      subscriptionOptions
-    );
+    const worker = await this.createWorker(queueName, eventType, handler, options);
 
     // Store subscription info
     this.subscriptions.set(subscriptionId, {
       eventType,
       queueName,
       worker,
-      options: subscriptionOptions,
+      options,
       subscribedAt: new Date(),
     });
 
@@ -154,7 +139,7 @@ export class BullMQEventBusAdapter implements EventBusPort {
       subscriptionId,
       eventType,
       queueName,
-      options: subscriptionOptions,
+      options: options,
     });
 
     return subscriptionId;
@@ -172,10 +157,10 @@ export class BullMQEventBusAdapter implements EventBusPort {
     try {
       // Close the worker
       await subscription.worker.close();
-      
+
       // Remove from workers map
       this.workers.delete(`${subscription.queueName}-${subscriptionId}`);
-      
+
       // Remove from subscriptions
       this.subscriptions.delete(subscriptionId);
 
@@ -184,7 +169,6 @@ export class BullMQEventBusAdapter implements EventBusPort {
         eventType: subscription.eventType,
         queueName: subscription.queueName,
       });
-
     } catch (error) {
       logger.error('Error during unsubscribe', {
         subscriptionId,
@@ -194,32 +178,19 @@ export class BullMQEventBusAdapter implements EventBusPort {
     }
   }
 
-  async healthCheck(): Promise<EventBusHealth> {
+  async getHealth() {
     const errors: string[] = [];
-    const queueSizes: Record<string, number> = {};
-    let totalLatency = 0;
     let healthyQueues = 0;
 
     // Check all queues
     for (const [queueName, queue] of this.queues) {
       try {
-        const [waiting, active, completed, failed] = await Promise.all([
-          queue.getWaiting(),
-          queue.getActive(),
-          queue.getCompleted(),
-          queue.getFailed(),
-        ]);
-
-        queueSizes[queueName] = waiting.length + active.length;
-        healthyQueues++;
-
-        // Simple latency check
-        const start = Date.now();
         await (queue.client as any).ping?.();
-        totalLatency += Date.now() - start;
-
+        healthyQueues++;
       } catch (error) {
-        errors.push(`Queue ${queueName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        errors.push(
+          `Queue ${queueName}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
       }
     }
 
@@ -233,15 +204,27 @@ export class BullMQEventBusAdapter implements EventBusPort {
     }
 
     const isHealthy = errors.length === 0 && redisConnected;
-    const averageLatency = this.queues.size > 0 ? totalLatency / this.queues.size : 0;
 
     return {
-      status: isHealthy ? 'healthy' : errors.length === this.queues.size ? 'unhealthy' : 'degraded',
-      connected: redisConnected,
-      latency: averageLatency,
-      queueSizes,
-      errors: errors.length > 0 ? errors : undefined,
-      lastCheckTime: new Date(),
+      isHealthy: isHealthy,
+      stats: {
+        publishedCount: 0,
+        consumedCount: 0,
+        errorCount: 0,
+        activeSubscriptions: this.subscriptions.size,
+      },
+      adapter: 'bullmq',
+      lastCheckedAt: new Date(),
+    };
+  }
+
+  async getMetrics() {
+    return {
+      publishedEvents: {},
+      consumedEvents: {},
+      averageLatencyMs: {},
+      errorRate: {},
+      throughputPerSecond: 0,
     };
   }
 
@@ -292,10 +275,10 @@ export class BullMQEventBusAdapter implements EventBusPort {
       defaultJobOptions: {
         removeOnComplete: 100,
         removeOnFail: 50,
-        attempts: this.config.defaultRetries + 1,
+        attempts: 4,
         backoff: {
           type: 'exponential',
-          delay: this.config.defaultRetryDelay,
+          delay: 5000,
         },
       },
     };
@@ -304,11 +287,11 @@ export class BullMQEventBusAdapter implements EventBusPort {
     this.queues.set(queueName, queue);
 
     // Set up queue event handlers
-    queue.on('error', (error) => {
+    queue.on('error', error => {
       logger.error(`Queue ${queueName} error:`, { error: error.message });
     });
 
-    queue.on('waiting', (job) => {
+    queue.on('waiting', job => {
       logger.debug(`Job waiting in queue ${queueName}:`, { jobId: job.id });
     });
 
@@ -319,20 +302,20 @@ export class BullMQEventBusAdapter implements EventBusPort {
   /**
    * Create a new worker
    */
-  private async createWorker<T extends DomainEvent>(
+  private async createWorker(
     queueName: string,
     eventType: string,
-    handler: EventHandler<T>,
-    options: SubscriptionOptions
+    handler: EventHandler,
+    options?: EventSubscription['options']
   ): Promise<Worker> {
     const workerOptions: WorkerOptions = {
       connection: this.redisConnection,
-      concurrency: options.concurrency || this.config.defaultConcurrency,
+      concurrency: 10,
     };
 
     const processJob = async (job: Job) => {
-      const { event, metadata } = job.data;
-      
+      const { event } = job.data;
+
       // Only process events of the subscribed type
       if (event.type !== eventType) {
         return; // Skip this job
@@ -346,14 +329,13 @@ export class BullMQEventBusAdapter implements EventBusPort {
           attempt: job.attemptsMade + 1,
         });
 
-        await handler(event, metadata);
+        await handler(event);
 
         logger.debug(`Event processed successfully`, {
           eventType: event.type,
           eventId: event.id,
           jobId: job.id,
         });
-
       } catch (error) {
         logger.error(`Event processing failed in BullMQ worker`, {
           eventType: event.type,
@@ -362,7 +344,7 @@ export class BullMQEventBusAdapter implements EventBusPort {
           attempt: job.attemptsMade + 1,
           error: error instanceof Error ? error.message : 'Unknown error',
         });
-        
+
         throw error; // Let BullMQ handle retries
       }
     };
@@ -372,7 +354,7 @@ export class BullMQEventBusAdapter implements EventBusPort {
     this.workers.set(workerId, worker);
 
     // Set up worker event handlers
-    worker.on('completed', (job) => {
+    worker.on('completed', job => {
       logger.debug(`Job completed in queue ${queueName}:`, {
         jobId: job.id,
         duration: Date.now() - job.timestamp,
@@ -388,12 +370,12 @@ export class BullMQEventBusAdapter implements EventBusPort {
       });
     });
 
-    worker.on('error', (error) => {
+    worker.on('error', error => {
       logger.error(`Worker error in queue ${queueName}:`, { error: error.message });
     });
 
     // Handle dead letter queue
-    if (options.enableDLQ) {
+    if (options?.deadLetterQueue) {
       worker.on('failed', async (job, error) => {
         if (job && job.attemptsMade >= (job.opts?.attempts || 1)) {
           await this.handleDeadLetter(job, error);
@@ -410,7 +392,7 @@ export class BullMQEventBusAdapter implements EventBusPort {
    */
   private async handleDeadLetter(job: Job, error: Error): Promise<void> {
     const dlqName = `dlq-${job.queueName}`;
-    
+
     try {
       let dlqQueue = this.queues.get(dlqName);
       if (!dlqQueue) {
@@ -437,7 +419,6 @@ export class BullMQEventBusAdapter implements EventBusPort {
         dlqName,
         error: error.message,
       });
-
     } catch (dlqError) {
       logger.error('Failed to send job to dead letter queue', {
         originalJobId: job.id,
@@ -452,11 +433,11 @@ export class BullMQEventBusAdapter implements EventBusPort {
   private getQueueName(eventType: string): string {
     // Map specific events to predefined queues
     const queueMap: Record<string, string> = {
-      'DeFiPositionsRequestedV1': 'portfolio',
-      'DeFiPositionsFetchedV1': 'portfolio',
-      'PortfolioComputedV1': 'portfolio',
-      'CacheWarmingRequestedV1': 'cache-warm',
-      'PortfolioComputationFailedV1': 'portfolio',
+      DeFiPositionsRequestedV1: 'portfolio',
+      DeFiPositionsFetchedV1: 'portfolio',
+      PortfolioComputedV1: 'portfolio',
+      CacheWarmingRequestedV1: 'cache-warm',
+      PortfolioComputationFailedV1: 'portfolio',
     };
 
     return queueMap[eventType] || 'default';
@@ -465,27 +446,9 @@ export class BullMQEventBusAdapter implements EventBusPort {
   /**
    * Convert priority to BullMQ priority number
    */
-  private getPriority(priority?: string): number {
-    const priorityMap: Record<string, number> = {
-      'critical': 10,
-      'high': 5,
-      'medium': 0,
-      'low': -5,
-    };
-
-    return priorityMap[priority || 'medium'];
+  private getPriority(priority?: number): number {
+    return priority || 0;
   }
-}
-
-/**
- * Subscription information for BullMQ
- */
-interface SubscriptionInfo {
-  eventType: string;
-  queueName: string;
-  worker: Worker;
-  options: SubscriptionOptions;
-  subscribedAt: Date;
 }
 
 /**

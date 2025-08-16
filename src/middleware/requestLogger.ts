@@ -1,24 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger, generateRequestId } from '@/utils/logger';
-
-export interface RequestLogContext {
-  requestId: string;
-  method: string;
-  url: string;
-  userAgent?: string;
-  ip: string;
-  userId?: string;
-  startTime: number;
-}
+import type { RequestLogContext } from '@/middleware/interfaces';
 
 // Extend Express Request interface
 declare global {
   namespace Express {
-    interface Request {
-      startTime: number;
-      requestId: string;
-      logContext: RequestLogContext;
-    }
+    interface Request { startTime: number; requestId: string; logContext: RequestLogContext }
   }
 }
 

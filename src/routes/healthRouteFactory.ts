@@ -180,4 +180,3 @@ class HealthRouteFactory {
 }
 
 export default createHealthRoutes;
-

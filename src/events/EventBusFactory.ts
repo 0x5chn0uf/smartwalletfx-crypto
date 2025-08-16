@@ -14,12 +14,12 @@ export class EventBusFactory {
   /**
    * Create an event bus instance based on environment and configuration
    */
-  static create(eventBusConfig?: Partial<EventBusConfig>): EventBusPort {
+  static create(eventBusType?: string, eventBusConfig?: Partial<EventBusConfig>): EventBusPort {
     const environment = config.nodeEnv;
-    const eventBusType = process.env.EVENT_BUS_TYPE || 'auto';
+    const busType = eventBusType || process.env.EVENT_BUS_TYPE || 'auto';
 
     // Determine which event bus to use
-    const useInMemory = EventBusFactory.shouldUseInMemory(environment, eventBusType);
+    const useInMemory = EventBusFactory.shouldUseInMemory(environment, busType);
 
     if (useInMemory) {
       logger.info('Creating InMemoryEventBusAdapter for development/testing');
@@ -51,11 +51,7 @@ export class EventBusFactory {
    */
   static getDefaultConfig(): EventBusConfig {
     return {
-      defaultRetries: parseInt(process.env.EVENT_BUS_DEFAULT_RETRIES || '3', 10),
-      defaultRetryDelay: parseInt(process.env.EVENT_BUS_DEFAULT_RETRY_DELAY || '5000', 10),
-      defaultConcurrency: parseInt(process.env.EVENT_BUS_DEFAULT_CONCURRENCY || '5', 10),
-      enableDLQ: process.env.EVENT_BUS_ENABLE_DLQ === 'true',
-      healthCheckInterval: parseInt(process.env.EVENT_BUS_HEALTH_CHECK_INTERVAL || '30000', 10),
+        adapter: 'in-memory'
     };
   }
 
@@ -64,11 +60,7 @@ export class EventBusFactory {
    */
   static createWithProductionDefaults(): EventBusPort {
     const productionConfig: EventBusConfig = {
-      defaultRetries: 3,
-      defaultRetryDelay: 5000,
-      defaultConcurrency: 5,
-      enableDLQ: true,
-      healthCheckInterval: 30000,
+        adapter: 'bullmq'
     };
 
     return EventBusFactory.createBullMQ(productionConfig);
@@ -79,11 +71,7 @@ export class EventBusFactory {
    */
   static createWithDevelopmentDefaults(): EventBusPort {
     const developmentConfig: EventBusConfig = {
-      defaultRetries: 1,
-      defaultRetryDelay: 1000,
-      defaultConcurrency: 10,
-      enableDLQ: false,
-      healthCheckInterval: 10000,
+        adapter: 'in-memory'
     };
 
     return EventBusFactory.createInMemory(developmentConfig);
@@ -124,7 +112,7 @@ let eventBusInstance: EventBusPort | null = null;
 export const getEventBus = (): EventBusPort => {
   if (!eventBusInstance) {
     const defaultConfig = EventBusFactory.getDefaultConfig();
-    eventBusInstance = EventBusFactory.create(defaultConfig);
+    eventBusInstance = EventBusFactory.create('auto', defaultConfig);
 
     logger.info('Event bus singleton created', {
       type: eventBusInstance.constructor.name,

@@ -2,12 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { RateLimiterRedis } from 'rate-limiter-flexible';
 import { redisManager } from '@/utils/redis';
 import { logger } from '@/utils/logger';
-
-interface LimiterOptions {
-  points: number; // Number of points
-  duration: number; // Per duration in seconds
-  keyPrefix: string;
-}
+import type { LimiterOptions } from '@/middleware/interfaces';
 
 // Create a Redis-backed rate limiter instance
 export const createRedisRateLimiter = (options: LimiterOptions) => {

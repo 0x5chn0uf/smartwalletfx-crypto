@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
-import { EventBusPort, EventHandler, SubscriptionOptions, EventBusHealth, EventBusConfig } from '@/ports/EventBusPort';
-import { DomainEvent, EventMetadata } from '@/events/types';
+import { EventBusPort, EventHandler, EventBusConfig, IntegrationEvent, PublishOptions, EventSubscription } from '@/ports/EventBusPort';
 import { logger } from '@/utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -13,9 +12,8 @@ import { v4 as uuidv4 } from 'uuid';
  */
 export class InMemoryEventBusAdapter implements EventBusPort {
   private emitter: EventEmitter;
-  private subscriptions: Map<string, SubscriptionInfo> = new Map();
+  private subscriptions: Map<string, any> = new Map();
   private config: EventBusConfig;
-  private healthCheckInterval?: NodeJS.Timer;
   private isShuttingDown = false;
   private eventStats = {
     published: 0,
@@ -26,35 +24,26 @@ export class InMemoryEventBusAdapter implements EventBusPort {
 
   constructor(config: Partial<EventBusConfig> = {}) {
     this.config = {
-      defaultRetries: 3,
-      defaultRetryDelay: 1000,
-      defaultConcurrency: 10,
-      enableDLQ: false, // In-memory adapter doesn't support DLQ
-      healthCheckInterval: 30000,
-      ...config,
+        adapter: 'in-memory',
+        ...config,
     };
 
     this.emitter = new EventEmitter();
     this.emitter.setMaxListeners(100); // Allow many subscribers
-    this.startHealthChecking();
 
     logger.info('InMemoryEventBusAdapter initialized', {
       config: this.config,
     });
   }
 
-  async publish<T extends DomainEvent>(event: T, metadata?: EventMetadata): Promise<void> {
+  async initialize(): Promise<void> {
+      // Nothing to do for in-memory
+  }
+
+  async publish(event: IntegrationEvent, options?: PublishOptions): Promise<void> {
     if (this.isShuttingDown) {
       throw new Error('Event bus is shutting down');
     }
-
-    const eventMetadata: EventMetadata = {
-      source: 'InMemoryEventBus',
-      correlationId: uuidv4(),
-      priority: 'medium',
-      retryCount: 0,
-      ...metadata,
-    };
 
     try {
       this.eventStats.published++;
@@ -62,14 +51,12 @@ export class InMemoryEventBusAdapter implements EventBusPort {
       logger.debug('Publishing event', {
         eventType: event.type,
         eventId: event.id,
-        aggregateId: event.aggregateId,
-        metadata: eventMetadata,
       });
 
       // Emit the event asynchronously
       process.nextTick(() => {
-        this.emitter.emit(event.type, event, eventMetadata);
-        this.emitter.emit('*', event, eventMetadata); // Wildcard for global listeners
+        this.emitter.emit(event.type, event);
+        this.emitter.emit('*', event); // Wildcard for global listeners
       });
 
     } catch (error) {
@@ -83,34 +70,30 @@ export class InMemoryEventBusAdapter implements EventBusPort {
     }
   }
 
-  async subscribe<T extends DomainEvent>(
+  async publishBatch(events: IntegrationEvent[], options?: PublishOptions): Promise<void> {
+      for(const event of events) {
+          await this.publish(event, options);
+      }
+  }
+
+  async subscribe(
     eventType: string,
-    handler: EventHandler<T>,
-    options: SubscriptionOptions = {}
+    handler: EventHandler,
+    options?: EventSubscription['options']
   ): Promise<string> {
     if (this.isShuttingDown) {
       throw new Error('Event bus is shutting down');
     }
 
     const subscriptionId = uuidv4();
-    const subscriptionOptions = {
-      maxRetries: this.config.defaultRetries,
-      retryDelay: this.config.defaultRetryDelay,
-      concurrency: this.config.defaultConcurrency,
-      queue: `queue-${eventType}`,
-      ...options,
-    };
 
     // Create wrapped handler with retry logic
-    const wrappedHandler = async (event: T, metadata: EventMetadata) => {
-      const processingMetadata = { ...metadata };
+    const wrappedHandler = async (event: IntegrationEvent) => {
       let lastError: Error | null = null;
 
-      for (let attempt = 0; attempt <= subscriptionOptions.maxRetries!; attempt++) {
+      for (let attempt = 0; attempt <= (options?.maxRetries || 0); attempt++) {
         try {
-          processingMetadata.retryCount = attempt;
-          
-          await handler(event, processingMetadata);
+          await handler(event);
           
           this.eventStats.processed++;
           
@@ -133,15 +116,15 @@ export class InMemoryEventBusAdapter implements EventBusPort {
             eventType: event.type,
             eventId: event.id,
             attempt,
-            maxRetries: subscriptionOptions.maxRetries,
+            maxRetries: options?.maxRetries,
             error: lastError.message,
             subscriptionId,
           });
 
           // If not the last attempt, wait before retrying
-          if (attempt < subscriptionOptions.maxRetries!) {
+          if (attempt < (options?.maxRetries || 0)) {
             await new Promise(resolve => 
-              setTimeout(resolve, subscriptionOptions.retryDelay! * Math.pow(2, attempt))
+              setTimeout(resolve, (options?.retryDelayMs || 1000) * Math.pow(2, attempt))
             );
           }
         }
@@ -151,14 +134,14 @@ export class InMemoryEventBusAdapter implements EventBusPort {
       logger.error('Event processing failed after all retries', {
         eventType: event.type,
         eventId: event.id,
-        maxRetries: subscriptionOptions.maxRetries,
+        maxRetries: options?.maxRetries,
         error: lastError?.message,
         subscriptionId,
       });
 
       // In a real system, this would go to a Dead Letter Queue
       // For in-memory, we just log it
-      if (subscriptionOptions.enableDLQ) {
+      if (options?.deadLetterQueue) {
         logger.warn('Event would be sent to DLQ (not implemented in InMemoryAdapter)', {
           eventType: event.type,
           eventId: event.id,
@@ -171,7 +154,7 @@ export class InMemoryEventBusAdapter implements EventBusPort {
     this.subscriptions.set(subscriptionId, {
       eventType,
       handler: wrappedHandler,
-      options: subscriptionOptions,
+      options: options,
       subscribedAt: new Date(),
     });
 
@@ -181,7 +164,7 @@ export class InMemoryEventBusAdapter implements EventBusPort {
     logger.info('Subscription created', {
       subscriptionId,
       eventType,
-      options: subscriptionOptions,
+      options: options,
     });
 
     return subscriptionId;
@@ -208,27 +191,35 @@ export class InMemoryEventBusAdapter implements EventBusPort {
     });
   }
 
-  async healthCheck(): Promise<EventBusHealth> {
+  async getHealth() {
     const isHealthy = !this.isShuttingDown;
-    const queueSizes = this.getQueueSizes();
 
     return {
-      status: isHealthy ? 'healthy' : 'unhealthy',
-      connected: true, // Always connected for in-memory
-      queueSizes,
-      lastCheckTime: new Date(),
-    };
+        isHealthy: isHealthy,
+        stats: {
+            publishedCount: this.eventStats.published,
+            consumedCount: this.eventStats.processed,
+            errorCount: this.eventStats.failed,
+            activeSubscriptions: this.subscriptions.size
+        },
+        adapter: 'in-memory',
+        lastCheckedAt: new Date()
+      };
   }
+
+  async getMetrics() {
+    return {
+      publishedEvents: {},
+      consumedEvents: {},
+      averageLatencyMs: {},
+      errorRate: {},
+      throughputPerSecond: 0
+    }
+}
 
   async shutdown(): Promise<void> {
     logger.info('Shutting down InMemoryEventBusAdapter...');
     this.isShuttingDown = true;
-
-    // Clear health check interval
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval as NodeJS.Timeout);
-      this.healthCheckInterval = undefined;
-    }
 
     // Remove all listeners
     this.emitter.removeAllListeners();
@@ -251,50 +242,6 @@ export class InMemoryEventBusAdapter implements EventBusPort {
       eventTypes: Array.from(new Set(Array.from(this.subscriptions.values()).map(s => s.eventType))),
     };
   }
-
-  /**
-   * Get queue sizes (simulated for in-memory adapter)
-   */
-  private getQueueSizes(): Record<string, number> {
-    const queueSizes: Record<string, number> = {};
-    
-    // For in-memory, we can only report active listeners
-    for (const [_, subscription] of this.subscriptions) {
-      const queueName = subscription.options.queue || `queue-${subscription.eventType}`;
-      queueSizes[queueName] = this.emitter.listenerCount(subscription.eventType);
-    }
-    
-    return queueSizes;
-  }
-
-  /**
-   * Start periodic health checking
-   */
-  private startHealthChecking(): void {
-    this.healthCheckInterval = setInterval(async () => {
-      try {
-        const health = await this.healthCheck();
-        
-        if (health.status !== 'healthy') {
-          logger.warn('InMemoryEventBusAdapter health check failed', { health });
-        }
-      } catch (error) {
-        logger.error('Health check failed', {
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-      }
-    }, this.config.healthCheckInterval);
-  }
-}
-
-/**
- * Subscription information for tracking
- */
-interface SubscriptionInfo {
-  eventType: string;
-  handler: Function;
-  options: SubscriptionOptions;
-  subscribedAt: Date;
 }
 
 /**

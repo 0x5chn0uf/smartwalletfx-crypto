@@ -3,21 +3,12 @@ import jwt from 'jsonwebtoken';
 import { config } from '@/config';
 import { logger } from '@/utils/logger';
 import { UnauthorizedError } from '@/middleware/errorHandler';
-
-interface JWTPayload {
-  userId: string;
-  email?: string;
-  roles?: string[];
-  iat: number;
-  exp: number;
-}
+import type { JWTPayload } from '@/middleware/interfaces';
 
 // Extend Express Request interface to include user
 declare global {
   namespace Express {
-    interface Request {
-      user?: JWTPayload;
-    }
+    interface Request { user?: JWTPayload }
   }
 }
 

@@ -1,12 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '@/utils/logger';
-
-export interface ApiError extends Error {
-  statusCode?: number;
-  code?: string;
-  details?: any;
-  isOperational?: boolean;
-}
+import type { ApiError } from '@/middleware/interfaces';
 
 export class AppError extends Error implements ApiError {
   public readonly statusCode: number;

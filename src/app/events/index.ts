@@ -21,7 +21,7 @@ export * from './PortfolioEvents';
 export * from './SystemEvents';
 
 // Re-export port interface and utilities
-export * from '../ports/EventBusPort';
+export * from '@/ports/EventBusPort';
 
 // Event type constants for easy reference
 export const ALL_EVENT_TYPES = {

@@ -1,4 +1,4 @@
-import { IntegrationEvent } from '../ports/EventBusPort';
+import { IntegrationEvent } from '@/ports/EventBusPort';
 import { ChainId } from '@/types/blockchain';
 
 /**

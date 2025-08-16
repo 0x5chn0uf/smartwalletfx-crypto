@@ -3,7 +3,7 @@ export * from './types';
 export * from './EventBusFactory';
 
 // Port interface
-export { EventBusPort, EventBusConfig, EventBusHealth } from '@/ports/EventBusPort';
+export { EventBusPort, EventBusConfig } from '@/ports/EventBusPort';
 
 // Adapters
 export { InMemoryEventBusAdapter } from '@/adapters/outbound/event-bus/InMemoryEventBusAdapter';

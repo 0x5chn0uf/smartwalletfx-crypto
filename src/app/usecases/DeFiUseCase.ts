@@ -1,14 +1,5 @@
 import { ServiceDeps as ServiceDependencies } from '@/app/runtime';
-
-export interface GetDeFiPortfolioOptions {
-  chainIds?: any[];
-  protocols?: any[];
-  includeInactive?: boolean;
-  includeYield?: boolean;
-  includeRisk?: boolean;
-  minValue?: number;
-  forceRefresh?: boolean;
-}
+import type { GetDeFiPortfolioOptions } from '@/ports/DeFiPort';
 
 export class DeFiUseCase {
   constructor(private readonly deps: ServiceDependencies) {}

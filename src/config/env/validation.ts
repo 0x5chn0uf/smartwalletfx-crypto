@@ -1,10 +1,4 @@
-import dotenv from 'dotenv';
-import path from 'path';
 import { z } from 'zod';
-
-// Load environment variables (default + optional .env.local)
-dotenv.config();
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 // Helpers
 export const stringToBoolean = (value: string) => value.toLowerCase() === 'true';
@@ -20,63 +14,29 @@ export const envSchema = z.object({
   SERVER_TIMEOUT: z.string().transform(Number).default('30000'),
   BODY_LIMIT: z.string().default('10mb'),
 
-  // Database Configuration
-  DATABASE_URL: z.string().url(),
+  
   DATABASE_POOL_SIZE: z.string().transform(Number).default('10'),
   DATABASE_TIMEOUT: z.string().transform(Number).default('60000'),
   DATABASE_SSL: z.string().transform(stringToBoolean).default('false'),
 
   // Redis Configuration
-  REDIS_URL: z.string().url(),
+  
   REDIS_MAX_RETRIES: z.string().transform(Number).default('3'),
   REDIS_RETRY_DELAY: z.string().transform(Number).default('1000'),
   REDIS_COMMAND_TIMEOUT: z.string().transform(Number).default('5000'),
   REDIS_MAX_MEMORY: z.string().default('512mb'),
   REDIS_KEY_PREFIX: z.string().default('smartwallet:crypto:'),
 
-  // Primary API Keys (Required)
-  ALCHEMY_API_KEY: z.string().min(1),
+  
 
-  // Secondary API Keys (Optional)
-  MORALIS_API_KEY: z.string().min(1).optional(),
-  QUICKNODE_API_KEY: z.string().min(1).optional(),
-  ANKR_API_KEY: z.string().min(1).optional(),
-  HELIUS_API_KEY: z.string().min(1).optional(),
-  INFURA_API_KEY: z.string().min(1).optional(),
-
-  // NFT Marketplace APIs
-  OPENSEA_API_KEY: z.string().min(1).optional(),
-  MAGIC_EDEN_API_KEY: z.string().min(1).optional(),
-  RESERVOIR_API_KEY: z.string().min(1).optional(),
-  NFTGO_API_KEY: z.string().min(1).optional(),
-
-  // DeFi Data Providers
-  DEFI_LLAMA_API_KEY: z.string().min(1).optional(),
-  COINGECKO_API_KEY: z.string().min(1).optional(),
-  DUNE_API_KEY: z.string().min(1).optional(),
-  THE_GRAPH_API_KEY: z.string().min(1).optional(),
-
-  // Blockchain RPC URLs
-  ETHEREUM_RPC_URL: z.string().url(),
-  POLYGON_RPC_URL: z.string().url().optional(),
-  ARBITRUM_RPC_URL: z.string().url().optional(),
-  OPTIMISM_RPC_URL: z.string().url().optional(),
-  BASE_RPC_URL: z.string().url().optional(),
-  BSC_RPC_URL: z.string().url().optional(),
-  AVALANCHE_RPC_URL: z.string().url().optional(),
-  FANTOM_RPC_URL: z.string().url().optional(),
+  
 
   // Solana
   SOLANA_RPC_URL: z.string().url().optional(),
   SOLANA_COMMITMENT: z.enum(['processed', 'confirmed', 'finalized']).default('confirmed'),
 
   // Security
-  JWT_SECRET: z.string().min(32),
-  JWT_EXPIRES_IN: z.string().default('24h'),
-  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
-  ENCRYPTION_KEY: z.string().min(32),
-  ENCRYPTION_ALGORITHM: z.string().default('aes-256-gcm'),
-  API_KEY_SALT: z.string().min(16).optional(),
+  
 
   // API Keys Management
   VALID_API_KEYS: z.string().optional(),
@@ -116,7 +76,7 @@ export const envSchema = z.object({
   LOG_MAX_FILES: z.string().transform(Number).default('5'),
 
   // Error tracking
-  SENTRY_DSN: z.string().url().optional(),
+  
   SENTRY_ENVIRONMENT: z.string().optional(),
   SENTRY_SAMPLE_RATE: z.string().transform(Number).default('0.1'),
 
@@ -135,6 +95,18 @@ export const envSchema = z.object({
   REQUEST_TIMEOUT: z.string().transform(Number).default('30000'),
   SLOW_QUERY_THRESHOLD: z.string().transform(Number).default('1000'),
   GRACEFUL_SHUTDOWN_TIMEOUT: z.string().transform(Number).default('10000'),
+
+  // Concurrency Control & Rate Limiting
+  ENABLE_CONCURRENCY_LIMITING: z.string().transform(stringToBoolean).default('true'),
+  CHAIN_MANAGER_CONCURRENCY: z.string().transform(Number).default('10'),
+  PROVIDER_RETRY_ATTEMPTS: z.string().transform(Number).default('3'),
+  PROVIDER_RETRY_INITIAL_DELAY: z.string().transform(Number).default('1000'),
+  PROVIDER_RETRY_MAX_DELAY: z.string().transform(Number).default('30000'),
+  PROVIDER_RETRY_BACKOFF_MULTIPLIER: z.string().transform(Number).default('2.0'),
+  PROVIDER_RETRY_JITTER_FACTOR: z.string().transform(Number).default('0.1'),
+  PROVIDER_RATE_LIMIT_PER_SECOND: z.string().transform(Number).default('10'),
+  PROVIDER_RATE_LIMIT_PER_MINUTE: z.string().transform(Number).default('600'),
+  PROVIDER_BURST_ALLOWANCE: z.string().transform(Number).default('5'),
 
   // Flags
   ENABLE_WEBSOCKETS: z.string().transform(stringToBoolean).default('false'),
@@ -160,9 +132,26 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 
+import { EnvSecretManagerAdapter } from '@/adapters/EnvSecretManagerAdapter';
+import { SecretManagerPort } from '@/ports/SecretManagerPort';
+
+let secretManager: SecretManagerPort;
+
+export const initializeSecretManager = (adapter: SecretManagerPort) => {
+  secretManager = adapter;
+};
+
+export const getSecretManager = (): SecretManagerPort => {
+  if (!secretManager) {
+    // Default to EnvSecretManagerAdapter if not explicitly set
+    secretManager = new EnvSecretManagerAdapter();
+  }
+  return secretManager;
+};
+
 // Additional production-time validations
 if (env.NODE_ENV === 'production') {
-  const required = ['JWT_SECRET', 'ENCRYPTION_KEY', 'DATABASE_URL', 'REDIS_URL'] as const;
+  const required = ['DATABASE_URL', 'REDIS_URL'] as const; // JWT_SECRET and ENCRYPTION_KEY are now fetched via secret manager
   const missing = required.filter((key) => {
     const v = (env as any)[key];
     return !v || (typeof v === 'string' && v.length === 0);
@@ -172,12 +161,60 @@ if (env.NODE_ENV === 'production') {
     missing.forEach((f) => console.error(`  - ${f}`));
     process.exit(1);
   }
-  if (env.JWT_SECRET.length < 64) {
-    console.error('🚨 JWT_SECRET must be at least 64 characters in production');
-    process.exit(1);
-  }
-  if (env.ENCRYPTION_KEY.length < 32) {
-    console.error('🚨 ENCRYPTION_KEY must be at least 32 characters in production');
-    process.exit(1);
-  }
 }
+
+// We will fetch sensitive secrets here and export them
+export const loadSensitiveSecrets = async () => {
+  const sm = getSecretManager();
+  const secrets = {
+    databaseUrl: await sm.getRequiredSecret('DATABASE_URL'),
+    redisUrl: await sm.getRequiredSecret('REDIS_URL'),
+    alchemyApiKey: await sm.getRequiredSecret('ALCHEMY_API_KEY'),
+    moralisApiKey: await sm.getSecret('MORALIS_API_KEY'),
+    quicknodeApiKey: await sm.getSecret('QUICKNODE_API_KEY'),
+    ankrApiKey: await sm.getSecret('ANKR_API_KEY'),
+    heliusApiKey: await sm.getSecret('HELIUS_API_KEY'),
+    infuraApiKey: await sm.getSecret('INFURA_API_KEY'),
+    openseaApiKey: await sm.getSecret('OPENSEA_API_KEY'),
+    magicEdenApiKey: await sm.getSecret('MAGIC_EDEN_API_KEY'),
+    reservoirApiKey: await sm.getSecret('RESERVOIR_API_KEY'),
+    nftgoApiKey: await sm.getSecret('NFTGO_API_KEY'),
+    defiLlamaApiKey: await sm.getSecret('DEFI_LLAMA_API_KEY'),
+    coingeckoApiKey: await sm.getSecret('COINGECKO_API_KEY'),
+    duneApiKey: await sm.getSecret('DUNE_API_KEY'),
+    theGraphApiKey: await sm.getSecret('THE_GRAPH_API_KEY'),
+    ethereumRpcUrl: await sm.getRequiredSecret('ETHEREUM_RPC_URL'),
+    polygonRpcUrl: await sm.getSecret('POLYGON_RPC_URL'),
+    arbitrumRpcUrl: await sm.getSecret('ARBITRUM_RPC_URL'),
+    optimismRpcUrl: await sm.getSecret('OPTIMISM_RPC_URL'),
+    baseRpcUrl: await sm.getSecret('BASE_RPC_URL'),
+    bscRpcUrl: await sm.getSecret('BSC_RPC_URL'),
+    avalancheRpcUrl: await sm.getSecret('AVALANCHE_RPC_URL'),
+    fantomRpcUrl: await sm.getSecret('FANTOM_RPC_URL'),
+    jwtSecret: await sm.getRequiredSecret('JWT_SECRET'),
+    encryptionKey: await sm.getRequiredSecret('ENCRYPTION_KEY'),
+    apiKeySalt: await sm.getSecret('API_KEY_SALT'),
+    sentryDsn: await sm.getSecret('SENTRY_DSN'),
+    solanaRpcUrl: await sm.getSecret('SOLANA_RPC_URL'),
+    jwtExpiresIn: await sm.getSecret('JWT_EXPIRES_IN'),
+    jwtRefreshExpiresIn: await sm.getSecret('JWT_REFRESH_EXPIRES_IN'),
+    encryptionAlgorithm: await sm.getSecret('ENCRYPTION_ALGORITHM'),
+  };
+
+  // Production-time validations for secrets
+  if (env.NODE_ENV === 'production') {
+    if (secrets.jwtSecret.length < 64) {
+      console.error('🚨 JWT_SECRET must be at least 64 characters in production');
+      process.exit(1);
+    }
+    if (secrets.encryptionKey.length < 32) {
+      console.error('🚨 ENCRYPTION_KEY must be at least 32 characters in production');
+      process.exit(1);
+    }
+  }
+
+  return secrets;
+};
+
+export type SensitiveSecrets = Awaited<ReturnType<typeof loadSensitiveSecrets>>;
+

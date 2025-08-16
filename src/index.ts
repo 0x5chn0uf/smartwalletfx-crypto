@@ -1,19 +1,13 @@
 import http from 'http';
 import app from './app';
-import { config } from '@/config';
+import { initializeConfig } from '@/config';
 import { logger } from '@/utils/logger';
-import { redisManager } from '@/utils/redis';
-import { getChainManager } from '@/services/ChainManager';
-import { CHAIN_CONFIGS, CHAIN_RPC_URLS } from '@/types/blockchain';
-import { initializeDeFiServices, shutdownDeFiServices } from '@/services/defi';
-import { initializeNFTServices, shutdownNFTServices } from '@/services/nft';
-import { getEventBus } from '@/events/EventBusFactory';
-import { createWorkerManager, WorkerManager } from '@/workers/WorkerManager';
-import { createDeFiOrchestrator } from '@/services/defi/DeFiOrchestrator';
+import { getRuntime } from '@/app/runtime';
+import type { RuntimeInterface as Runtime } from '@/app/runtime';
 
 // Module-scoped references for lifecycle management
 let server: http.Server | null = null;
-let workerManager: WorkerManager | null = null;
+let runtime: Runtime | null = null;
 
 // Graceful shutdown handler
 const gracefulShutdown = async (signal: string) => {
@@ -25,79 +19,25 @@ const gracefulShutdown = async (signal: string) => {
       server.close(async () => {
         logger.info('HTTP server closed');
         
-        // Stop ChainManager (clear timers, stop providers)
-        try {
-          await getChainManager().stop();
-          logger.info('ChainManager stopped');
-        } catch (error) {
-          logger.error('Error stopping ChainManager:', { error });
-        }
-
-        // Shutdown DeFi services
-        try {
-          await shutdownDeFiServices();
-          logger.info('DeFi services shutdown');
-        } catch (error) {
-          logger.error('Error shutting down DeFi services:', { error });
+        // Stop runtime (this handles all service cleanup)
+        if (runtime) {
+          await runtime.stop();
         }
         
-        // Shutdown NFT services
-        try {
-          await shutdownNFTServices();
-          logger.info('NFT services shutdown');
-        } catch (error) {
-          logger.error('Error shutting down NFT services:', { error });
-        }
-
-        // Shutdown worker manager and event bus
-        try {
-          if (workerManager) {
-            await workerManager.stop();
-            logger.info('Worker manager shutdown');
-          }
-          
-          const eventBus = getEventBus();
-          await eventBus.shutdown();
-          logger.info('Event bus shutdown');
-        } catch (error) {
-          logger.error('Error shutting down event system:', { error });
-        }
-        
-        // Close Redis connections (graceful quit)
-        try {
-          await redisManager.quit();
-          logger.info('Redis connection quit');
-        } catch (error) {
-          logger.error('Error closing Redis connection:', { error });
-        }
-        
-        // Perform any additional cleanup here
         logger.info('Graceful shutdown completed');
         process.exit(0);
       });
     } else {
-      logger.warn('HTTP server not initialized; proceeding with cleanup');
-      await getChainManager().stop().catch((error) => logger.error('Error stopping ChainManager:', { error }));
-      await shutdownDeFiServices().catch((error) => logger.error('Error shutting down DeFi services:', { error }));
-      await shutdownNFTServices().catch((error) => logger.error('Error shutting down NFT services:', { error }));
+      logger.warn('HTTP server not initialized; proceeding with runtime cleanup');
       
-      // Shutdown event system
-      if (workerManager) {
-        await workerManager.stop().catch((error) => logger.error('Error stopping worker manager:', { error }));
+      // Stop runtime even without HTTP server
+      if (runtime) {
+        await runtime.stop();
       }
-      const eventBus = getEventBus();
-      await eventBus.shutdown().catch((error) => logger.error('Error shutting down event bus:', { error }));
       
-      await redisManager.quit().catch((error) => logger.error('Error closing Redis connection:', { error }));
       logger.info('Graceful shutdown completed');
       process.exit(0);
     }
-    
-    // Force shutdown after 30 seconds
-    setTimeout(() => {
-      logger.error('Graceful shutdown timeout, forcing exit');
-      process.exit(1);
-    }, 30000);
     
   } catch (error) {
     logger.error('Error during graceful shutdown:', { error });
@@ -125,57 +65,16 @@ async function startServer() {
   try {
     logger.info('Starting crypto-data service...');
     
-    // Initialize Redis
-    logger.info('Initializing Redis connection...');
-    await redisManager.connect();
-    logger.info('✅ Redis connected');
+    const config: Config = await initializeConfig();
     
-    // Initialize Chain Manager
-    logger.info('Initializing blockchain providers...');
-    await getChainManager().initialize();
+    // Initialize runtime and all services
+    runtime = getRuntime();
+    await runtime.start(config);
     
-    const healthStatus = getChainManager().getHealthStatus();
-    logger.info(`✅ Chain providers initialized: ${healthStatus.healthyProviders}/${healthStatus.totalProviders} healthy`);
-    
-    if (healthStatus.healthyProviders === 0) {
-      logger.warn('⚠️  No healthy providers available. Service may have limited functionality.');
-    }
-
-    // Initialize DeFi Services
-    logger.info('Initializing DeFi protocol adapters...');
-    await initializeDeFiServices();
-    logger.info('✅ DeFi services initialized');
-
-    // Initialize NFT Services
-    logger.info('Initializing NFT detection services...');
-    await initializeNFTServices();
-    logger.info('✅ NFT services initialized');
-
-    // Initialize Event Bus and Workers
-    logger.info('Initializing event bus and workers...');
-    const eventBus = getEventBus();
-    await eventBus.healthCheck(); // Ensure event bus is ready
-    
-    // Create DeFi orchestrator for workers
-    const rpcUrls = Object.fromEntries(
-      Object.entries(CHAIN_CONFIGS).map(([chainId, config]) => [
-        parseInt(chainId) || chainId, // Handle both numeric and string chain IDs
-        config.rpcUrl
-      ])
-    );
-    const deFiOrchestrator = createDeFiOrchestrator(rpcUrls);
-    await deFiOrchestrator.initialize();
-    
-    // Initialize worker manager
-    workerManager = createWorkerManager(eventBus, deFiOrchestrator, {
-      healthCheckIntervalMs: 30000, // 30 seconds
-    });
-    
-    await workerManager.start();
-    logger.info('✅ Event bus and workers initialized');
-    
-    // Start HTTP server
-    server = app.listen(config.server.port, config.server.host, async () => {
+    // Start HTTP server with dependencies from runtime
+    const dependencies = runtime.dependencies;
+    const expressApp = app(config);
+    server = expressApp.listen(config.server.port, config.server.host, async () => {
       logger.info(`🚀 Crypto Data Service started successfully!`);
       logger.info(`📍 Server: http://${config.server.host}:${config.server.port}`);
       logger.info(`🏥 Health: http://${config.server.host}:${config.server.port}/health`);
@@ -193,25 +92,31 @@ async function startServer() {
       }
       
       try {
-        // Log event system status
-        const eventBusHealth = await eventBus.healthCheck();
-        const workerHealth = await workerManager!.getHealthStatus();
-        logger.info(`📨 Event bus: ${eventBusHealth.status}`);
-        logger.info(`⚙️  Workers: ${workerHealth.healthyWorkers}/${workerHealth.totalWorkers} healthy`);
+        // Get runtime health status
+        const runtimeHealth = runtime!.getHealthStatus();
+        logger.info(`📊 Runtime status: ${runtimeHealth.status}`);
+        
+        // Log service health
+        Object.entries(runtimeHealth.services).forEach(([service, healthy]) => {
+          const status = healthy ? '✅' : '❌';
+          logger.info(`  ${status} ${service}`);
+        });
         
         // Log supported chains
-        const supportedChains = getChainManager().getSupportedChains();
+        const supportedChains = dependencies.chainManager.getSupportedChains();
         logger.info(`🔗 Supported chains: ${supportedChains.length}`);
 
+        const chainHealth = dependencies.chainManager.getHealthStatus();
         supportedChains.forEach((chainId) => {
-          const providerStatus = (healthStatus as any).providerStatus[chainId as any];
+          const providerStatus = (chainHealth as any).providerStatus[chainId as any];
           const status = providerStatus?.healthy ? '✅' : '❌';
-          const chainName = (CHAIN_CONFIGS as any)[chainId as any]?.name || String(chainId);
+          const chainName = (config.chains as any)[chainId]?.name || String(chainId);
           logger.info(`  ${status} ${chainName} (${providerStatus?.provider || 'Unknown'})`);
         });
         
         logger.info('🎯 System ready for high-performance portfolio computations!');
         logger.info(`📊 Expected throughput: ≥100 portfolio computations/minute`);
+        logger.info(`⏱️  Runtime uptime: ${Math.round((runtime as any).uptime / 1000)}s`);
       } catch (error) {
         logger.error('Error during server startup logging:', { error });
       }
@@ -221,10 +126,18 @@ async function startServer() {
     server.timeout = 60000; // 60 seconds
     server.keepAliveTimeout = 65000; // 65 seconds
     
-    // Server is stored in module scope for graceful shutdown
-    
   } catch (error) {
     logger.error('Failed to start server:', { error });
+    
+    // Clean up runtime on startup failure
+    if (runtime) {
+      try {
+        await runtime.stop();
+      } catch (cleanupError) {
+        logger.error('Error during startup cleanup:', { error: cleanupError });
+      }
+    }
+    
     process.exit(1);
   }
 }
@@ -236,7 +149,7 @@ startServer().catch((error) => {
 });
 
 // Export server for testing
-export { app };
+export { server };
 
 // Extend global namespace for server reference
 declare global {

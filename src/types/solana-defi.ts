@@ -14,6 +14,8 @@ export enum SolanaProtocol {
   DRIFT = 'drift',
   MANGO = 'mango',
   KAMINO = 'kamino',
+  SOLEND = 'solend',
+  METEORA = 'meteora',
   JITO = 'jito',
   SANCTUM = 'sanctum',
 }
