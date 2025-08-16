@@ -1,6 +1,6 @@
 /**
  * Solana DeFi Orchestrator
- * 
+ *
  * Coordinates all Solana DeFi protocol adapters and provides unified
  * portfolio aggregation with cross-chain integration capabilities.
  */
@@ -20,6 +20,7 @@ import {
   SolanaToken,
   WELL_KNOWN_TOKENS,
 } from '@/types/solana-defi';
+import type { SolanaPort } from '@/ports/SolanaPort';
 
 export interface SolanaOrchestratorConfig {
   rpcUrl: string;
@@ -51,7 +52,7 @@ export interface CrossChainPosition {
   }[];
 }
 
-export class SolanaOrchestrator {
+export class SolanaOrchestrator implements SolanaPort {
   private readonly config: SolanaOrchestratorConfig;
   private readonly tokenParser: SolanaTokenParser;
   private readonly adapters = new Map<SolanaProtocol, any>();
@@ -131,7 +132,7 @@ export class SolanaOrchestrator {
       const successCount = results.filter(result => result.status === 'fulfilled').length;
 
       this.isInitialized = successCount > 0;
-      
+
       logger.info('Solana DeFi orchestrator initialization completed', {
         totalAdapters: initPromises.length,
         successfulAdapters: successCount,
@@ -153,7 +154,7 @@ export class SolanaOrchestrator {
    */
   async getPortfolio(address: string): Promise<SolanaPortfolio> {
     const cacheKey = `solana:orchestrator:portfolio:${address}`;
-    
+
     try {
       // Check cache first
       const cached = await redisManager.get<SolanaPortfolio>(cacheKey);
@@ -189,7 +190,7 @@ export class SolanaOrchestrator {
 
       // Execute position fetching with concurrency control
       const positionResults = await this.executeWithConcurrencyLimit(adapterPromises);
-      
+
       // Flatten all positions
       for (const result of positionResults) {
         if (result.status === 'fulfilled' && Array.isArray(result.value)) {
@@ -205,11 +206,15 @@ export class SolanaOrchestrator {
 
       // Update staking and liquidity positions from DeFi positions
       enhancedPortfolio.stakingPositions = allPositions
-        .filter(pos => pos.type === SolanaPositionType.STAKING && pos.protocol === SolanaProtocol.MARINADE)
+        .filter(
+          pos => pos.type === SolanaPositionType.STAKING && pos.protocol === SolanaProtocol.MARINADE
+        )
         .map(pos => this.convertToStakingPosition(pos));
 
       enhancedPortfolio.liquidityPositions = allPositions
-        .filter(pos => pos.type === SolanaPositionType.LIQUIDITY && pos.protocol === SolanaProtocol.ORCA)
+        .filter(
+          pos => pos.type === SolanaPositionType.LIQUIDITY && pos.protocol === SolanaProtocol.ORCA
+        )
         .map(pos => this.convertToLiquidityPosition(pos));
 
       // Recalculate total value
@@ -234,7 +239,7 @@ export class SolanaOrchestrator {
    */
   async getPortfolioAnalytics(address: string): Promise<SolanaPortfolioAnalytics> {
     const cacheKey = `solana:orchestrator:analytics:${address}`;
-    
+
     try {
       // Check cache first
       const cached = await redisManager.get<SolanaPortfolioAnalytics>(cacheKey);
@@ -243,16 +248,16 @@ export class SolanaOrchestrator {
       }
 
       const portfolio = await this.getPortfolio(address);
-      
+
       // Calculate protocol distribution
       const protocolDistribution = this.calculateProtocolDistribution(portfolio.defiPositions);
-      
+
       // Calculate risk metrics
       const riskMetrics = this.calculateRiskMetrics(portfolio);
-      
+
       // Calculate yield summary
       const yieldSummary = this.calculateYieldSummary(portfolio.defiPositions);
-      
+
       // Calculate historical performance (simplified)
       const dayChange = 0; // Would need historical data
       const weekChange = 0;
@@ -289,7 +294,7 @@ export class SolanaOrchestrator {
     evmAddresses: string[]
   ): Promise<CrossChainPosition> {
     const cacheKey = `solana:orchestrator:cross-chain:${solanaAddress}:${evmAddresses.join(',')}`;
-    
+
     try {
       // Check cache first
       const cached = await redisManager.get<CrossChainPosition>(cacheKey);
@@ -299,11 +304,11 @@ export class SolanaOrchestrator {
 
       // Get Solana portfolio
       const solanaPortfolio = await this.getPortfolio(solanaAddress);
-      
+
       // For EVM addresses, we'd need to call the EVM service
       // This is a placeholder for the integration
       const evmValue = 0; // Would be fetched from EVM service
-      
+
       // Analyze protocol correlations
       const crossChainCorrelations = this.analyzeCrossChainCorrelations(
         solanaPortfolio.defiPositions
@@ -337,23 +342,26 @@ export class SolanaOrchestrator {
    */
   async getHealthStatus(): Promise<Record<SolanaProtocol, boolean>> {
     const health: Record<SolanaProtocol, boolean> = {};
-    
+
     const healthPromises: Promise<void>[] = [];
-    
+
     for (const [protocol, adapter] of this.adapters) {
       if (adapter && typeof adapter.healthCheck === 'function') {
         healthPromises.push(
-          adapter.healthCheck().then((isHealthy: boolean) => {
-            health[protocol] = isHealthy;
-          }).catch(() => {
-            health[protocol] = false;
-          })
+          adapter
+            .healthCheck()
+            .then((isHealthy: boolean) => {
+              health[protocol] = isHealthy;
+            })
+            .catch(() => {
+              health[protocol] = false;
+            })
         );
       }
     }
-    
+
     await Promise.allSettled(healthPromises);
-    
+
     return health;
   }
 
@@ -365,13 +373,13 @@ export class SolanaOrchestrator {
   ): Promise<PromiseSettledResult<T>[]> {
     const limit = this.config.performance.maxConcurrentRequests;
     const results: PromiseSettledResult<T>[] = [];
-    
+
     for (let i = 0; i < promises.length; i += limit) {
       const batch = promises.slice(i, i + limit);
       const batchResults = await Promise.allSettled(batch);
       results.push(...batchResults);
     }
-    
+
     return results;
   }
 
@@ -381,12 +389,12 @@ export class SolanaOrchestrator {
   private calculateProtocolDistribution(positions: SolanaDeFiPosition[]) {
     const distribution = new Map<SolanaProtocol, number>();
     const totalValue = positions.reduce((sum, pos) => sum + pos.value, 0);
-    
+
     for (const position of positions) {
       const current = distribution.get(position.protocol) || 0;
       distribution.set(position.protocol, current + position.value);
     }
-    
+
     return Array.from(distribution.entries()).map(([protocol, value]) => ({
       protocol,
       value,
@@ -400,28 +408,27 @@ export class SolanaOrchestrator {
   private calculateRiskMetrics(portfolio: SolanaPortfolio) {
     const positions = portfolio.defiPositions;
     const totalValue = portfolio.totalValue;
-    
+
     // Concentration risk (how concentrated the portfolio is)
     const protocolDistribution = this.calculateProtocolDistribution(positions);
     const maxProtocolPercentage = Math.max(...protocolDistribution.map(p => p.percentage));
     const concentrationRisk = maxProtocolPercentage / 100;
-    
+
     // Liquidity risk (based on position types)
-    const liquidPositions = positions.filter(p => 
-      p.type === SolanaPositionType.SWAP || 
-      p.type === SolanaPositionType.LIQUIDITY
+    const liquidPositions = positions.filter(
+      p => p.type === SolanaPositionType.SWAP || p.type === SolanaPositionType.LIQUIDITY
     );
     const liquidValue = liquidPositions.reduce((sum, pos) => sum + pos.value, 0);
-    const liquidityRisk = totalValue > 0 ? 1 - (liquidValue / totalValue) : 0;
-    
+    const liquidityRisk = totalValue > 0 ? 1 - liquidValue / totalValue : 0;
+
     // Protocol risk (based on number of protocols)
     const protocolCount = new Set(positions.map(p => p.protocol)).size;
     const protocolRisk = protocolCount < 3 ? 0.8 : protocolCount < 5 ? 0.5 : 0.2;
-    
+
     // Overall risk assessment
     const overallRiskScore = (concentrationRisk + liquidityRisk + protocolRisk) / 3;
     const overallRisk = overallRiskScore > 0.7 ? 'high' : overallRiskScore > 0.4 ? 'medium' : 'low';
-    
+
     return {
       concentrationRisk,
       liquidityRisk,
@@ -435,7 +442,7 @@ export class SolanaOrchestrator {
    */
   private calculateYieldSummary(positions: SolanaDeFiPosition[]) {
     const yieldPositions = positions.filter(p => p.apy && p.apy > 0);
-    
+
     if (yieldPositions.length === 0) {
       return {
         totalYield: 0,
@@ -447,17 +454,17 @@ export class SolanaOrchestrator {
         },
       };
     }
-    
+
     const totalValue = yieldPositions.reduce((sum, pos) => sum + pos.value, 0);
     const weightedApy = yieldPositions.reduce((sum, pos) => {
       const weight = pos.value / totalValue;
-      return sum + (pos.apy! * weight);
+      return sum + pos.apy! * weight;
     }, 0);
-    
-    const bestPosition = yieldPositions.reduce((best, current) => 
+
+    const bestPosition = yieldPositions.reduce((best, current) =>
       current.apy! > best.apy! ? current : best
     );
-    
+
     return {
       totalYield: totalValue,
       averageApy: weightedApy,
@@ -476,7 +483,7 @@ export class SolanaOrchestrator {
     // This would analyze similarities between Solana and EVM protocols
     // For example, Orca (Solana) correlates with Uniswap (Ethereum)
     const correlations = [];
-    
+
     for (const position of positions) {
       switch (position.protocol) {
         case SolanaProtocol.ORCA:
@@ -492,7 +499,7 @@ export class SolanaOrchestrator {
             protocol: 'Liquid Staking',
             solanaProtocol: SolanaProtocol.MARINADE,
             evmProtocol: 'Lido',
-            correlationScore: 0.90,
+            correlationScore: 0.9,
           });
           break;
         case SolanaProtocol.JUPITER:
@@ -500,12 +507,12 @@ export class SolanaOrchestrator {
             protocol: 'DEX Aggregation',
             solanaProtocol: SolanaProtocol.JUPITER,
             evmProtocol: '1inch',
-            correlationScore: 0.80,
+            correlationScore: 0.8,
           });
           break;
       }
     }
-    
+
     return correlations;
   }
 

@@ -16,6 +16,7 @@ import {
   AdapterManagerConfig,
   createProtocolAdapterManager 
 } from './ProtocolAdapterManager';
+import type { DeFiPort } from '@/ports/DeFiPort';
 
 interface DeFiOrchestratorConfig {
   enabledProtocols: DeFiProtocol[];
@@ -26,7 +27,7 @@ interface DeFiOrchestratorConfig {
   rpcUrls: Partial<Record<ChainId, string>>;
 }
 
-export class DeFiOrchestrator {
+export class DeFiOrchestrator implements DeFiPort {
   private adapterManager: ProtocolAdapterManager;
   private healthCheckTimer?: NodeJS.Timer;
 

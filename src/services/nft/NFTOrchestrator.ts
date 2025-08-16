@@ -15,6 +15,7 @@ import {
   CollectionAnalytics,
   NFTPrice,
 } from '@/types/nft';
+import type { NFTPort } from '@/ports/NFTPort';
 
 // NFT Detector Interface
 export interface NFTDetector {
@@ -77,7 +78,7 @@ export interface NFTPortfolioOptions {
   standards?: NFTStandard[];
 }
 
-export class NFTOrchestrator {
+export class NFTOrchestrator implements NFTPort {
   private detectors = new Map<string, NFTDetector>();
   private enrichers = new Map<string, NFTMetadataEnricher>();
   private health: NFTOrchestratorHealth = {
