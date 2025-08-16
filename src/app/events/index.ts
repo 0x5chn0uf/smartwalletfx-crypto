@@ -65,30 +65,7 @@ export const EVENT_PRIORITIES = {
 } as const;
 
 // Common event metadata fields
-export interface CommonEventMetadata {
-  /** Correlation ID for tracing across services */
-  correlationId?: string;
-  /** User ID who triggered this event (if applicable) */
-  userId?: string;
-  /** Session ID for user session tracking */
-  sessionId?: string;
-  /** Client type that originated the request */
-  clientType?: 'web' | 'mobile' | 'api' | 'worker' | 'system';
-  /** Event priority for queue processing */
-  priority?: number;
-  /** Retry count for failed events */
-  retryCount?: number;
-  /** Maximum retry attempts allowed */
-  maxRetries?: number;
-  /** Tags for categorization and filtering */
-  tags?: string[];
-  /** Performance tracking */
-  performance?: {
-    startedAt?: string;
-    processingTimeMs?: number;
-    queueTimeMs?: number;
-  };
-}
+export type { CommonEventMetadata } from './interfaces/common';
 
 /**
  * Utility function to check if an event is retriable based on error

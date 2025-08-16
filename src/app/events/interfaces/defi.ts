@@ -12,9 +12,19 @@ export interface DeFiPositionsRequestedV1 extends IntegrationEvent {
     protocols?: DeFiProtocol[];
     includeInactive?: boolean;
     minValueUSD?: number;
-    enrichment?: { includeYieldData?: boolean; includeRiskMetrics?: boolean; includeRewards?: boolean; includeHistoricalData?: boolean };
+    enrichment?: {
+      includeYieldData?: boolean;
+      includeRiskMetrics?: boolean;
+      includeRewards?: boolean;
+      includeHistoricalData?: boolean;
+    };
     requestedAt: string;
-    context?: { userId?: string; clientId?: string; userAgent?: string; priority?: 'low' | 'medium' | 'high' | 'urgent' };
+    context?: {
+      userId?: string;
+      clientId?: string;
+      userAgent?: string;
+      priority?: 'low' | 'medium' | 'high' | 'urgent';
+    };
   };
 }
 
@@ -32,7 +42,13 @@ export interface DeFiPositionsFetchedV1 extends IntegrationEvent {
       fetchDurationMs: number;
       costUSD?: number;
       cacheStats: { hits: number; misses: number; hitRate: number };
-      chainPerformance: Array<{ chainId: ChainId; durationMs: number; positionCount: number; success: boolean; error?: string }>;
+      chainPerformance: Array<{
+        chainId: ChainId;
+        durationMs: number;
+        positionCount: number;
+        success: boolean;
+        error?: string;
+      }>;
     };
   };
 }
@@ -41,9 +57,15 @@ export interface DeFiPositionsErrorV1 extends IntegrationEvent {
   type: 'DeFiPositionsErrorV1';
   data: {
     address: string;
-    error: { message: string; code?: string; provider?: string; chainId?: ChainId; protocol?: DeFiProtocol; retryable?: boolean };
+    error: {
+      message: string;
+      code?: string;
+      provider?: string;
+      chainId?: ChainId;
+      protocol?: DeFiProtocol;
+      retryable?: boolean;
+    };
     failedAt: string;
     context?: { requestId?: string; userId?: string };
   };
 }
-
