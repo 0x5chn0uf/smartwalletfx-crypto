@@ -1,314 +1,274 @@
 /**
  * Money and Decimal Precision Utilities
+ *
+ * Implements battle-tested decimal arithmetic for financial calculations
+ * using decimal.js library to ensure precision safety for monetary computations.
  * 
- * Implements decimal arithmetic for financial calculations to avoid
- * JavaScript floating-point precision issues as required by PRD Phase 2.
- * 
- * Uses string-based decimal arithmetic to ensure precision safety
- * for monetary computations.
+ * REFACTORED: Replaced custom decimal implementation with decimal.js
  */
 
+import Decimal from 'decimal.js';
 import { logger } from './logger';
 
 /**
- * Configuration for decimal precision
+ * Configuration for decimal precision and rounding
  */
-export interface DecimalConfig {
+export interface MoneyConfig {
   precision: number;
-  rounding: 'up' | 'down' | 'half-up' | 'half-down' | 'half-even';
+  rounding: number;
 }
 
 /**
- * Default configuration for monetary calculations
+ * Predefined configurations for different use cases
  */
-export const DEFAULT_MONEY_CONFIG: DecimalConfig = {
-  precision: 18, // 18 decimal places for crypto precision
-  rounding: 'half-even', // Banker's rounding
-};
+export const MONEY_CONFIGS = {
+  // 18 decimal places for crypto precision
+  CRYPTO: {
+    precision: 18,
+    rounding: Decimal.ROUND_HALF_EVEN, // Banker's rounding
+  } as MoneyConfig,
+
+  // 2 decimal places for USD
+  USD: {
+    precision: 2,
+    rounding: Decimal.ROUND_HALF_UP,
+  } as MoneyConfig,
+
+  // 6 decimal places for most fiat currencies
+  FIAT: {
+    precision: 6,
+    rounding: Decimal.ROUND_HALF_EVEN,
+  } as MoneyConfig,
+
+  // 8 decimal places for Bitcoin-style precision
+  BTC: {
+    precision: 8,
+    rounding: Decimal.ROUND_HALF_EVEN,
+  } as MoneyConfig,
+} as const;
 
 /**
- * USD-specific configuration (2 decimal places)
+ * Money class using decimal.js for precise calculations
  */
-export const USD_CONFIG: DecimalConfig = {
-  precision: 2,
-  rounding: 'half-up',
-};
+export class Money {
+  private readonly value: Decimal;
+  private readonly config: MoneyConfig;
 
-/**
- * Custom Decimal class for precise monetary calculations
- * Uses string-based arithmetic to avoid floating-point errors
- */
-export class MoneyDecimal {
-  private value: string;
-  private config: DecimalConfig;
-
-  constructor(value: string | number | MoneyDecimal, config: DecimalConfig = DEFAULT_MONEY_CONFIG) {
+  constructor(value: Decimal.Value, config: MoneyConfig = MONEY_CONFIGS.CRYPTO) {
     this.config = config;
     
-    if (value instanceof MoneyDecimal) {
-      this.value = value.value;
-    } else if (typeof value === 'number') {
-      // Convert number to string with proper precision
-      this.value = value.toFixed(config.precision);
-    } else {
-      this.value = this.normalizeString(value);
-    }
-    
-    this.validate();
-  }
-
-  /**
-   * Normalize string input
-   */
-  private normalizeString(str: string): string {
-    // Remove any non-numeric characters except decimal point and minus
-    const cleaned = str.replace(/[^0-9.-]/g, '');
-    
-    // Handle empty or invalid strings
-    if (!cleaned || cleaned === '-' || cleaned === '.') {
-      return '0';
-    }
-    
-    return cleaned;
-  }
-
-  /**
-   * Validate the decimal value
-   */
-  private validate(): void {
-    const num = parseFloat(this.value);
-    if (isNaN(num)) {
-      logger.warn('Invalid decimal value, defaulting to 0', { value: this.value });
-      this.value = '0';
+    try {
+      this.value = new Decimal(value);
+    } catch (error) {
+      logger.warn('Invalid money value, defaulting to 0', { 
+        value, 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+      this.value = new Decimal(0);
     }
   }
 
-  /**
-   * Add two decimal values
-   */
-  add(other: string | number | MoneyDecimal): MoneyDecimal {
-    const otherDecimal = new MoneyDecimal(other, this.config);
-    const a = parseFloat(this.value);
-    const b = parseFloat(otherDecimal.value);
-    const result = a + b;
-    return new MoneyDecimal(result, this.config);
+  // Arithmetic operations
+  add(other: Money | Decimal.Value): Money {
+    const otherMoney = other instanceof Money ? other : new Money(other, this.config);
+    return new Money(this.value.add(otherMoney.value), this.config);
   }
 
-  /**
-   * Subtract two decimal values
-   */
-  subtract(other: string | number | MoneyDecimal): MoneyDecimal {
-    const otherDecimal = new MoneyDecimal(other, this.config);
-    const a = parseFloat(this.value);
-    const b = parseFloat(otherDecimal.value);
-    const result = a - b;
-    return new MoneyDecimal(result, this.config);
+  subtract(other: Money | Decimal.Value): Money {
+    const otherMoney = other instanceof Money ? other : new Money(other, this.config);
+    return new Money(this.value.sub(otherMoney.value), this.config);
   }
 
-  /**
-   * Multiply two decimal values
-   */
-  multiply(other: string | number | MoneyDecimal): MoneyDecimal {
-    const otherDecimal = new MoneyDecimal(other, this.config);
-    const a = parseFloat(this.value);
-    const b = parseFloat(otherDecimal.value);
-    const result = a * b;
-    return new MoneyDecimal(result, this.config);
+  multiply(other: Money | Decimal.Value): Money {
+    const otherValue = other instanceof Money ? other.value : new Decimal(other);
+    return new Money(this.value.mul(otherValue), this.config);
   }
 
-  /**
-   * Divide two decimal values
-   */
-  divide(other: string | number | MoneyDecimal): MoneyDecimal {
-    const otherDecimal = new MoneyDecimal(other, this.config);
-    const a = parseFloat(this.value);
-    const b = parseFloat(otherDecimal.value);
+  divide(other: Money | Decimal.Value): Money {
+    const otherValue = other instanceof Money ? other.value : new Decimal(other);
     
-    if (b === 0) {
+    if (otherValue.isZero()) {
       throw new Error('Division by zero');
     }
     
-    const result = a / b;
-    return new MoneyDecimal(result, this.config);
+    return new Money(this.value.div(otherValue), this.config);
   }
 
-  /**
-   * Round to specified precision
-   */
-  round(precision?: number): MoneyDecimal {
-    const targetPrecision = precision ?? this.config.precision;
-    const factor = Math.pow(10, targetPrecision);
-    const num = parseFloat(this.value);
-    
-    let rounded: number;
-    
-    switch (this.config.rounding) {
-      case 'up':
-        rounded = Math.ceil(num * factor) / factor;
-        break;
-      case 'down':
-        rounded = Math.floor(num * factor) / factor;
-        break;
-      case 'half-up':
-        rounded = Math.round(num * factor) / factor;
-        break;
-      case 'half-down':
-        rounded = Math.sign(num) * Math.floor(Math.abs(num) * factor + 0.5) / factor;
-        break;
-      case 'half-even': // Banker's rounding
-      default:
-        const scaled = num * factor;
-        const floor = Math.floor(scaled);
-        const decimal = scaled - floor;
-        
-        if (decimal === 0.5) {
-          rounded = (floor % 2 === 0 ? floor : floor + 1) / factor;
-        } else {
-          rounded = Math.round(scaled) / factor;
-        }
-        break;
-    }
-    
-    return new MoneyDecimal(rounded.toFixed(targetPrecision), this.config);
+  // Comparison operations
+  equals(other: Money | Decimal.Value): boolean {
+    const otherValue = other instanceof Money ? other.value : new Decimal(other);
+    return this.value.eq(otherValue);
   }
 
-  /**
-   * Compare with another decimal
-   */
-  compare(other: string | number | MoneyDecimal): number {
-    const otherDecimal = new MoneyDecimal(other, this.config);
-    const a = parseFloat(this.value);
-    const b = parseFloat(otherDecimal.value);
-    
-    if (a > b) return 1;
-    if (a < b) return -1;
-    return 0;
+  greaterThan(other: Money | Decimal.Value): boolean {
+    const otherValue = other instanceof Money ? other.value : new Decimal(other);
+    return this.value.gt(otherValue);
   }
 
-  /**
-   * Check if equal to another decimal
-   */
-  equals(other: string | number | MoneyDecimal): boolean {
-    return this.compare(other) === 0;
+  greaterThanOrEqual(other: Money | Decimal.Value): boolean {
+    const otherValue = other instanceof Money ? other.value : new Decimal(other);
+    return this.value.gte(otherValue);
   }
 
-  /**
-   * Check if greater than another decimal
-   */
-  greaterThan(other: string | number | MoneyDecimal): boolean {
-    return this.compare(other) > 0;
+  lessThan(other: Money | Decimal.Value): boolean {
+    const otherValue = other instanceof Money ? other.value : new Decimal(other);
+    return this.value.lt(otherValue);
   }
 
-  /**
-   * Check if less than another decimal
-   */
-  lessThan(other: string | number | MoneyDecimal): boolean {
-    return this.compare(other) < 0;
+  lessThanOrEqual(other: Money | Decimal.Value): boolean {
+    const otherValue = other instanceof Money ? other.value : new Decimal(other);
+    return this.value.lte(otherValue);
   }
 
-  /**
-   * Check if zero
-   */
+  // State checks
   isZero(): boolean {
-    return parseFloat(this.value) === 0;
+    return this.value.isZero();
   }
 
-  /**
-   * Check if negative
-   */
   isNegative(): boolean {
-    return parseFloat(this.value) < 0;
+    return this.value.isNegative();
   }
 
-  /**
-   * Check if positive
-   */
   isPositive(): boolean {
-    return parseFloat(this.value) > 0;
+    return this.value.isPositive();
   }
 
-  /**
-   * Get absolute value
-   */
-  abs(): MoneyDecimal {
-    const num = parseFloat(this.value);
-    return new MoneyDecimal(Math.abs(num), this.config);
+  isNaN(): boolean {
+    return this.value.isNaN();
   }
 
-  /**
-   * Convert to string with proper formatting
-   */
+  isFinite(): boolean {
+    return this.value.isFinite();
+  }
+
+  // Utility operations
+  abs(): Money {
+    return new Money(this.value.abs(), this.config);
+  }
+
+  round(precision?: number): Money {
+    const targetPrecision = precision ?? this.config.precision;
+    return new Money(
+      this.value.toDecimalPlaces(targetPrecision, this.config.rounding),
+      this.config
+    );
+  }
+
+  floor(): Money {
+    return new Money(this.value.floor(), this.config);
+  }
+
+  ceil(): Money {
+    return new Money(this.value.ceil(), this.config);
+  }
+
+  // Output methods
   toString(): string {
-    return parseFloat(this.value).toFixed(this.config.precision);
+    return this.value.toFixed(this.config.precision);
   }
 
-  /**
-   * Convert to number (use with caution for display only)
-   */
   toNumber(): number {
-    return parseFloat(this.value);
+    return this.value.toNumber();
   }
 
-  /**
-   * Convert to formatted currency string
-   */
+  toDecimalPlaces(precision: number): string {
+    return this.value.toDecimalPlaces(precision, this.config.rounding).toString();
+  }
+
   toCurrencyString(currency: string = 'USD', locale: string = 'en-US'): string {
-    const num = parseFloat(this.value);
-    
     try {
       return new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: currency,
         minimumFractionDigits: this.config.precision,
         maximumFractionDigits: this.config.precision,
-      }).format(num);
+      }).format(this.toNumber());
     } catch (error) {
-      logger.warn('Currency formatting failed, using fallback', { error, currency, locale });
+      logger.warn('Currency formatting failed, using fallback', { 
+        error: error instanceof Error ? error.message : String(error),
+        currency, 
+        locale 
+      });
       return `${currency} ${this.toString()}`;
     }
   }
 
-  /**
-   * Get raw string value
-   */
-  getRawValue(): string {
+  // Get raw decimal value
+  toDecimal(): Decimal {
     return this.value;
+  }
+
+  getRawValue(): string {
+    return this.value.toString();
   }
 }
 
 /**
- * Factory functions for common monetary calculations
+ * Factory class for creating Money instances with different configurations
+ */
+export class MoneyFactory {
+  /**
+   * Create USD amount (2 decimal places)
+   */
+  static usd(value: Decimal.Value): Money {
+    return new Money(value, MONEY_CONFIGS.USD);
+  }
+
+  /**
+   * Create crypto amount (18 decimal places)
+   */
+  static crypto(value: Decimal.Value): Money {
+    return new Money(value, MONEY_CONFIGS.CRYPTO);
+  }
+
+  /**
+   * Create Bitcoin amount (8 decimal places)
+   */
+  static btc(value: Decimal.Value): Money {
+    return new Money(value, MONEY_CONFIGS.BTC);
+  }
+
+  /**
+   * Create fiat amount (6 decimal places)
+   */
+  static fiat(value: Decimal.Value): Money {
+    return new Money(value, MONEY_CONFIGS.FIAT);
+  }
+
+  /**
+   * Create Money with custom configuration
+   */
+  static custom(value: Decimal.Value, config: MoneyConfig): Money {
+    return new Money(value, config);
+  }
+
+  /**
+   * Create zero amount with specified config
+   */
+  static zero(config: MoneyConfig = MONEY_CONFIGS.CRYPTO): Money {
+    return new Money(0, config);
+  }
+}
+
+/**
+ * Utility functions for money operations
  */
 export class MoneyUtils {
   /**
-   * Create a new MoneyDecimal for USD amounts
+   * Sum an array of Money values
    */
-  static usd(value: string | number | MoneyDecimal): MoneyDecimal {
-    return new MoneyDecimal(value, USD_CONFIG);
-  }
-
-  /**
-   * Create a new MoneyDecimal for crypto amounts
-   */
-  static crypto(value: string | number | MoneyDecimal): MoneyDecimal {
-    return new MoneyDecimal(value, DEFAULT_MONEY_CONFIG);
-  }
-
-  /**
-   * Sum an array of MoneyDecimal values
-   */
-  static sum(values: MoneyDecimal[]): MoneyDecimal {
+  static sum(values: Money[]): Money {
     if (values.length === 0) {
-      return new MoneyDecimal('0');
+      return MoneyFactory.zero();
     }
 
-    return values.reduce((acc, value) => acc.add(value), new MoneyDecimal('0', values[0].config));
+    return values.reduce((acc, value) => acc.add(value), MoneyFactory.zero(values[0].config));
   }
 
   /**
-   * Calculate percentage
+   * Calculate percentage of a Money value
    */
-  static percentage(value: MoneyDecimal, percentage: number): MoneyDecimal {
+  static percentage(value: Money, percentage: number): Money {
     return value.multiply(percentage).divide(100);
   }
 
@@ -316,16 +276,16 @@ export class MoneyUtils {
    * Convert between currencies using exchange rate
    */
   static convert(
-    amount: MoneyDecimal,
-    exchangeRate: number,
-    targetConfig?: DecimalConfig
-  ): MoneyDecimal {
+    amount: Money,
+    exchangeRate: Decimal.Value,
+    targetConfig?: MoneyConfig
+  ): Money {
     const converted = amount.multiply(exchangeRate);
-    
+
     if (targetConfig) {
-      return new MoneyDecimal(converted.getRawValue(), targetConfig);
+      return new Money(converted.toDecimal(), targetConfig);
     }
-    
+
     return converted;
   }
 
@@ -333,41 +293,22 @@ export class MoneyUtils {
    * Calculate token value in USD
    */
   static calculateTokenValueUSD(
-    tokenBalance: string | number,
-    tokenPrice: string | number
-  ): MoneyDecimal {
-    const balance = MoneyUtils.crypto(tokenBalance);
-    const price = MoneyUtils.usd(tokenPrice);
-    return balance.multiply(price);
+    tokenBalance: Decimal.Value,
+    tokenPrice: Decimal.Value
+  ): Money {
+    const balance = MoneyFactory.crypto(tokenBalance);
+    const price = MoneyFactory.usd(tokenPrice);
+    return balance.multiply(price.toDecimal());
   }
 
   /**
-   * Calculate portfolio total with proper precision
-   */
-  static calculatePortfolioTotal(tokenValues: MoneyDecimal[]): MoneyDecimal {
-    return MoneyUtils.sum(tokenValues).round(2); // Round to 2 decimal places for USD
-  }
-
-  /**
-   * Validate monetary amount
-   */
-  static validate(amount: string | number): boolean {
-    try {
-      const decimal = new MoneyDecimal(amount);
-      return !decimal.isNaN();
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Safe division with zero check
+   * Safe division with fallback for zero denominator
    */
   static safeDivide(
-    numerator: MoneyDecimal,
-    denominator: MoneyDecimal,
-    fallback: MoneyDecimal = new MoneyDecimal('0')
-  ): MoneyDecimal {
+    numerator: Money,
+    denominator: Money,
+    fallback: Money = MoneyFactory.zero()
+  ): Money {
     if (denominator.isZero()) {
       return fallback;
     }
@@ -375,9 +316,35 @@ export class MoneyUtils {
   }
 
   /**
-   * Format number for API responses
+   * Find maximum value in array
    */
-  static formatForAPI(amount: MoneyDecimal): {
+  static max(values: Money[]): Money {
+    if (values.length === 0) {
+      throw new Error('Cannot find max of empty array');
+    }
+
+    return values.reduce((max, current) => 
+      current.greaterThan(max) ? current : max
+    );
+  }
+
+  /**
+   * Find minimum value in array
+   */
+  static min(values: Money[]): Money {
+    if (values.length === 0) {
+      throw new Error('Cannot find min of empty array');
+    }
+
+    return values.reduce((min, current) => 
+      current.lessThan(min) ? current : min
+    );
+  }
+
+  /**
+   * Format for API responses
+   */
+  static formatForAPI(amount: Money): {
     value: string;
     formatted: string;
     displayValue: number;
@@ -388,49 +355,41 @@ export class MoneyUtils {
       displayValue: amount.toNumber(),
     };
   }
-}
 
-/**
- * Enhanced MoneyDecimal with NaN checking
- */
-declare global {
-  interface MoneyDecimal {
-    isNaN(): boolean;
+  /**
+   * Validate if a value can be converted to Money
+   */
+  static isValid(value: any): boolean {
+    try {
+      new Decimal(value);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
-MoneyDecimal.prototype.isNaN = function(): boolean {
-  return isNaN(parseFloat(this.getRawValue()));
-};
-
 /**
- * Helper functions for common operations
+ * Convenience helper object for quick money operations
  */
 export const money = {
-  /**
-   * Create USD amount
-   */
-  usd: (value: string | number) => MoneyUtils.usd(value),
-  
-  /**
-   * Create crypto amount
-   */
-  crypto: (value: string | number) => MoneyUtils.crypto(value),
-  
-  /**
-   * Add multiple amounts
-   */
-  sum: (...values: MoneyDecimal[]) => MoneyUtils.sum(values),
-  
-  /**
-   * Zero amount
-   */
-  zero: () => new MoneyDecimal('0'),
-  
-  /**
-   * Calculate percentage
-   */
-  percent: (value: MoneyDecimal, percentage: number) => MoneyUtils.percentage(value, percentage),
-};
+  // Factory methods
+  usd: (value: Decimal.Value) => MoneyFactory.usd(value),
+  crypto: (value: Decimal.Value) => MoneyFactory.crypto(value),
+  btc: (value: Decimal.Value) => MoneyFactory.btc(value),
+  fiat: (value: Decimal.Value) => MoneyFactory.fiat(value),
+  zero: (config?: MoneyConfig) => MoneyFactory.zero(config),
 
-export default MoneyUtils;
+  // Utility methods
+  sum: (...values: Money[]) => MoneyUtils.sum(values),
+  percent: (value: Money, percentage: number) => MoneyUtils.percentage(value, percentage),
+  max: (...values: Money[]) => MoneyUtils.max(values),
+  min: (...values: Money[]) => MoneyUtils.min(values),
+  
+  // Validation
+  isValid: (value: any) => MoneyUtils.isValid(value),
+} as const;
+
+// Export everything
+export { Decimal };
+export default MoneyFactory;
