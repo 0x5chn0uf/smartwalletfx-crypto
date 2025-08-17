@@ -1,6 +1,6 @@
 /**
  * Solana Token Account Parser
- * 
+ *
  * Comprehensive parser for Solana token accounts, SPL tokens, and DeFi positions.
  * Handles detection of various token types, account structures, and position analysis.
  */
@@ -60,11 +60,11 @@ export interface TokenMetadata {
 export class SolanaTokenParser {
   private readonly connection: Connection;
   private readonly tokenMetadataCache = new Map<string, TokenMetadata>();
-  
+
   // SPL Token program ID
   private static readonly TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
   private static readonly TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
-  
+
   // Token account layout offsets
   private static readonly TOKEN_ACCOUNT_LAYOUT = {
     MINT_OFFSET: 0,
@@ -107,7 +107,7 @@ export class SolanaTokenParser {
    */
   async getTokenAccounts(walletAddress: string): Promise<ParsedTokenAccount[]> {
     const cacheKey = `solana:token-accounts:${walletAddress}`;
-    
+
     try {
       // Check cache first
       const cached = await redisManager.get<ParsedTokenAccount[]>(cacheKey);
@@ -119,20 +119,21 @@ export class SolanaTokenParser {
       const accounts: ParsedTokenAccount[] = [];
 
       // Get SPL token accounts
-      const tokenAccounts = await this.connection.getTokenAccountsByOwner(
-        publicKey,
-        { programId: new PublicKey(SolanaTokenParser.TOKEN_PROGRAM_ID) }
-      );
+      const tokenAccounts = await this.connection.getTokenAccountsByOwner(publicKey, {
+        programId: new PublicKey(SolanaTokenParser.TOKEN_PROGRAM_ID),
+      });
 
       // Get Token-2022 accounts
-      const token2022Accounts = await this.connection.getTokenAccountsByOwner(
-        publicKey,
-        { programId: new PublicKey(SolanaTokenParser.TOKEN_2022_PROGRAM_ID) }
-      );
+      const token2022Accounts = await this.connection.getTokenAccountsByOwner(publicKey, {
+        programId: new PublicKey(SolanaTokenParser.TOKEN_2022_PROGRAM_ID),
+      });
 
       // Parse SPL token accounts
       for (const tokenAccount of tokenAccounts.value) {
-        const parsed = await this.parseTokenAccount(tokenAccount.pubkey.toString(), tokenAccount.account);
+        const parsed = await this.parseTokenAccount(
+          tokenAccount.pubkey.toString(),
+          tokenAccount.account
+        );
         if (parsed) {
           accounts.push(parsed);
         }
@@ -140,7 +141,10 @@ export class SolanaTokenParser {
 
       // Parse Token-2022 accounts
       for (const tokenAccount of token2022Accounts.value) {
-        const parsed = await this.parseTokenAccount(tokenAccount.pubkey.toString(), tokenAccount.account);
+        const parsed = await this.parseTokenAccount(
+          tokenAccount.pubkey.toString(),
+          tokenAccount.account
+        );
         if (parsed) {
           accounts.push(parsed);
         }
@@ -175,7 +179,7 @@ export class SolanaTokenParser {
 
       // Cache for 2 minutes
       await redisManager.set(cacheKey, accounts, 120);
-      
+
       return accounts;
     } catch (error) {
       logger.error('Failed to get token accounts', {
@@ -189,7 +193,10 @@ export class SolanaTokenParser {
   /**
    * Parse individual token account
    */
-  async parseTokenAccount(pubkey: string, account: AccountInfo<Buffer>): Promise<ParsedTokenAccount | null> {
+  async parseTokenAccount(
+    pubkey: string,
+    account: AccountInfo<Buffer>
+  ): Promise<ParsedTokenAccount | null> {
     try {
       if (!account.data || account.data.length < 165) {
         return null;
@@ -197,10 +204,10 @@ export class SolanaTokenParser {
 
       const data = this.parseTokenAccountData(account.data);
       const token = await this.getTokenMetadata(data.mint);
-      
+
       const decimals = token.decimals || data.decimals || 9;
       const balance = Number(data.amount) / Math.pow(10, decimals);
-      
+
       // Skip accounts with zero balance unless they're native SOL
       if (balance === 0 && data.mint !== SOLANA_NATIVE_MINT) {
         return null;
@@ -229,25 +236,32 @@ export class SolanaTokenParser {
    */
   private parseTokenAccountData(data: Buffer): TokenAccountData {
     const layout = SolanaTokenParser.TOKEN_ACCOUNT_LAYOUT;
-    
+
     return {
       mint: new PublicKey(data.subarray(layout.MINT_OFFSET, layout.MINT_OFFSET + 32)).toString(),
       owner: new PublicKey(data.subarray(layout.OWNER_OFFSET, layout.OWNER_OFFSET + 32)).toString(),
       amount: data.readBigUInt64LE(layout.AMOUNT_OFFSET),
       delegateOption: data.readUInt8(layout.DELEGATE_OPTION_OFFSET),
-      delegate: data.readUInt8(layout.DELEGATE_OPTION_OFFSET) !== 0 
-        ? new PublicKey(data.subarray(layout.DELEGATE_OFFSET, layout.DELEGATE_OFFSET + 32)).toString()
-        : undefined,
+      delegate:
+        data.readUInt8(layout.DELEGATE_OPTION_OFFSET) !== 0
+          ? new PublicKey(
+              data.subarray(layout.DELEGATE_OFFSET, layout.DELEGATE_OFFSET + 32)
+            ).toString()
+          : undefined,
       state: data.readUInt8(layout.STATE_OFFSET),
       isNativeOption: data.readUInt8(layout.IS_NATIVE_OPTION_OFFSET),
-      isNative: data.readUInt8(layout.IS_NATIVE_OPTION_OFFSET) !== 0
-        ? data.readBigUInt64LE(layout.IS_NATIVE_OFFSET)
-        : undefined,
+      isNative:
+        data.readUInt8(layout.IS_NATIVE_OPTION_OFFSET) !== 0
+          ? data.readBigUInt64LE(layout.IS_NATIVE_OFFSET)
+          : undefined,
       delegatedAmount: data.readBigUInt64LE(layout.DELEGATED_AMOUNT_OFFSET),
       closeAuthorityOption: data.readUInt8(layout.CLOSE_AUTHORITY_OPTION_OFFSET),
-      closeAuthority: data.readUInt8(layout.CLOSE_AUTHORITY_OPTION_OFFSET) !== 0
-        ? new PublicKey(data.subarray(layout.CLOSE_AUTHORITY_OFFSET, layout.CLOSE_AUTHORITY_OFFSET + 32)).toString()
-        : undefined,
+      closeAuthority:
+        data.readUInt8(layout.CLOSE_AUTHORITY_OPTION_OFFSET) !== 0
+          ? new PublicKey(
+              data.subarray(layout.CLOSE_AUTHORITY_OFFSET, layout.CLOSE_AUTHORITY_OFFSET + 32)
+            ).toString()
+          : undefined,
     };
   }
 
@@ -263,7 +277,7 @@ export class SolanaTokenParser {
     try {
       // Try to fetch from Solana Labs token list or other metadata sources
       const metadata = await this.fetchTokenMetadata(mint);
-      
+
       if (metadata) {
         this.tokenMetadataCache.set(mint, metadata);
         return metadata as SolanaToken;
@@ -282,7 +296,7 @@ export class SolanaTokenParser {
       return fallback;
     } catch (error) {
       logger.debug('Failed to fetch token metadata', { mint, error: (error as Error).message });
-      
+
       // Return fallback
       const fallback: SolanaToken = {
         mint,
@@ -322,7 +336,7 @@ export class SolanaTokenParser {
     try {
       // Metaplex metadata program ID
       const METADATA_PROGRAM_ID = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
-      
+
       // Derive metadata account address
       const [metadataAddress] = await PublicKey.findProgramAddress(
         [
@@ -372,19 +386,16 @@ export class SolanaTokenParser {
       for (const [protocol, programIds] of Object.entries(PROTOCOL_PROGRAM_IDS)) {
         for (const programId of programIds) {
           try {
-            const accounts = await this.connection.getProgramAccounts(
-              new PublicKey(programId),
-              {
-                filters: [
-                  {
-                    memcmp: {
-                      offset: 32, // Common owner field offset
-                      bytes: publicKey.toBase58(),
-                    },
+            const accounts = await this.connection.getProgramAccounts(new PublicKey(programId), {
+              filters: [
+                {
+                  memcmp: {
+                    offset: 32, // Common owner field offset
+                    bytes: publicKey.toBase58(),
                   },
-                ],
-              }
-            );
+                },
+              ],
+            });
 
             // Parse each account based on protocol
             for (const account of accounts) {
@@ -393,7 +404,7 @@ export class SolanaTokenParser {
                 account.pubkey.toString(),
                 account.account
               );
-              
+
               if (position) {
                 positions.push(position);
               }
@@ -446,7 +457,10 @@ export class SolanaTokenParser {
   /**
    * Parse Marinade-specific accounts
    */
-  private parseMarinadeAccount(accountAddress: string, accountInfo: AccountInfo<Buffer>): SolanaDeFiPosition | null {
+  private parseMarinadeAccount(
+    accountAddress: string,
+    accountInfo: AccountInfo<Buffer>
+  ): SolanaDeFiPosition | null {
     // Implementation would depend on specific Marinade account structures
     return null;
   }
@@ -454,7 +468,10 @@ export class SolanaTokenParser {
   /**
    * Parse Orca-specific accounts
    */
-  private parseOrcaAccount(accountAddress: string, accountInfo: AccountInfo<Buffer>): SolanaDeFiPosition | null {
+  private parseOrcaAccount(
+    accountAddress: string,
+    accountInfo: AccountInfo<Buffer>
+  ): SolanaDeFiPosition | null {
     // Implementation would depend on specific Orca account structures
     return null;
   }
@@ -462,7 +479,10 @@ export class SolanaTokenParser {
   /**
    * Parse Jupiter-specific accounts
    */
-  private parseJupiterAccount(accountAddress: string, accountInfo: AccountInfo<Buffer>): SolanaDeFiPosition | null {
+  private parseJupiterAccount(
+    accountAddress: string,
+    accountInfo: AccountInfo<Buffer>
+  ): SolanaDeFiPosition | null {
     // Jupiter doesn't typically have persistent user accounts
     return null;
   }
@@ -537,7 +557,7 @@ export class SolanaTokenParser {
         walletAddress,
         error: (error as Error).message,
       });
-      
+
       // Return empty portfolio on error
       return {
         address: walletAddress,

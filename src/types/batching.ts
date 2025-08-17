@@ -109,7 +109,11 @@ export interface QueueManagementConfig {
 export interface CrossChainBatchConfig {
   enabled: boolean;
   compatibleChains: { [key in ChainId]?: ChainId[] };
-  consolidationStrategies: { balance: boolean; token_metadata: boolean; price: boolean; transaction: boolean };
+  consolidationStrategies: {
+    balance: boolean;
+    token_metadata: boolean;
+    price: boolean;
+    transaction: boolean;
+  };
   maxLatencyIncrease: number;
 }
-

@@ -168,7 +168,7 @@ export interface ChainProvider {
   isValidAddress(address: string): boolean;
   formatAddress(address: string): string;
   getExplorerUrl(hash: string): string;
-  
+
   // Lifecycle methods
   stop?(): Promise<void>;
 }

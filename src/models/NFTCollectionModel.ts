@@ -2,12 +2,9 @@
 // Database operations for NFT collection management
 
 import { Prisma } from '@prisma/client';
-import { prisma, dbUtils } from '@/utils/database';
-import { logger } from '@/utils/logger';
-import {
-  NFTCollectionCreateSchema,
-  NFTCollectionUpdateSchema,
-} from './validators';
+import { prisma, dbUtils } from '../utils/database';
+import { logger } from '../utils/logger';
+import { NFTCollectionCreateSchema, NFTCollectionUpdateSchema } from './validators';
 import {
   NFTCollectionWithStats,
   QueryOptions,
@@ -16,13 +13,14 @@ import {
   ConflictError,
   BatchResult,
 } from './types';
+import { z } from 'zod';
 
 export class NFTCollectionModel {
   /**
    * Create a new NFT collection
    */
   static async create(
-    data: typeof NFTCollectionCreateSchema._input
+    data: z.infer<typeof NFTCollectionCreateSchema>
   ): Promise<NFTCollectionWithStats> {
     try {
       const validatedData = NFTCollectionCreateSchema.parse(data);
@@ -353,19 +351,19 @@ export class NFTCollectionModel {
    */
   static async update(
     id: string,
-    data: typeof NFTCollectionUpdateSchema._input
+    data: z.infer<typeof NFTCollectionUpdateSchema>
   ): Promise<NFTCollectionWithStats> {
     try {
       const validatedData = NFTCollectionUpdateSchema.parse(data);
 
       if (validatedData.contractAddress) {
-        validatedData.contractAddress = validatedData.contractAddress.toLowerCase();
+        (validatedData as any).contractAddress = validatedData.contractAddress.toLowerCase();
       }
 
       const collection = await prisma.nFTCollection.update({
         where: { id },
         data: {
-          ...validatedData,
+          ...(validatedData as any),
           updatedAt: new Date(),
         },
         include: {
@@ -440,7 +438,7 @@ export class NFTCollectionModel {
    * Bulk create collections
    */
   static async bulkCreate(
-    collectionsData: Array<typeof NFTCollectionCreateSchema._input>
+    collectionsData: Array<z.infer<typeof NFTCollectionCreateSchema>>
   ): Promise<BatchResult<NFTCollectionWithStats>> {
     const startTime = Date.now();
     const results: NFTCollectionWithStats[] = [];

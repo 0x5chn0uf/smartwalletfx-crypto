@@ -3,7 +3,12 @@ import { z } from 'zod';
 // Helpers
 export const stringToBoolean = (value: string) => value.toLowerCase() === 'true';
 export const parseCommaSeparated = (value: string) =>
-  value ? value.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  value
+    ? value
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+    : [];
 
 // Validation schema for environment variables
 export const envSchema = z.object({
@@ -14,29 +19,23 @@ export const envSchema = z.object({
   SERVER_TIMEOUT: z.string().transform(Number).default('30000'),
   BODY_LIMIT: z.string().default('10mb'),
 
-  
   DATABASE_POOL_SIZE: z.string().transform(Number).default('10'),
   DATABASE_TIMEOUT: z.string().transform(Number).default('60000'),
   DATABASE_SSL: z.string().transform(stringToBoolean).default('false'),
 
   // Redis Configuration
-  
+
   REDIS_MAX_RETRIES: z.string().transform(Number).default('3'),
   REDIS_RETRY_DELAY: z.string().transform(Number).default('1000'),
   REDIS_COMMAND_TIMEOUT: z.string().transform(Number).default('5000'),
   REDIS_MAX_MEMORY: z.string().default('512mb'),
   REDIS_KEY_PREFIX: z.string().default('smartwallet:crypto:'),
 
-  
-
-  
-
   // Solana
   SOLANA_RPC_URL: z.string().url().optional(),
   SOLANA_COMMITMENT: z.enum(['processed', 'confirmed', 'finalized']).default('confirmed'),
 
   // Security
-  
 
   // API Keys Management
   VALID_API_KEYS: z.string().optional(),
@@ -76,7 +75,7 @@ export const envSchema = z.object({
   LOG_MAX_FILES: z.string().transform(Number).default('5'),
 
   // Error tracking
-  
+
   SENTRY_ENVIRONMENT: z.string().optional(),
   SENTRY_SAMPLE_RATE: z.string().transform(Number).default('0.1'),
 
@@ -126,7 +125,9 @@ const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {
   console.error('❌ Invalid environment variables:');
   const fieldErrors = parsed.error.flatten().fieldErrors;
-  Object.entries(fieldErrors).forEach(([field, errors]) => console.error(`  ${field}: ${errors?.join(', ')}`));
+  Object.entries(fieldErrors).forEach(([field, errors]) =>
+    console.error(`  ${field}: ${errors?.join(', ')}`)
+  );
   process.exit(1);
 }
 
@@ -149,17 +150,45 @@ export const getSecretManager = (): SecretManagerPort => {
   return secretManager;
 };
 
-// Additional production-time validations
+// SECURITY FIX: Enhanced production-time validations
 if (env.NODE_ENV === 'production') {
   const required = ['DATABASE_URL', 'REDIS_URL'] as const; // JWT_SECRET and ENCRYPTION_KEY are now fetched via secret manager
-  const missing = required.filter((key) => {
+  const missing = required.filter(key => {
     const v = (env as any)[key];
     return !v || (typeof v === 'string' && v.length === 0);
   });
   if (missing.length > 0) {
     console.error('🚨 Production deployment requires these fields:');
-    missing.forEach((f) => console.error(`  - ${f}`));
+    missing.forEach(f => console.error(`  - ${f}`));
     process.exit(1);
+  }
+
+  // SECURITY FIX: Production security warnings and validations
+  if (env.ENABLE_SWAGGER === true) {
+    console.warn('🚨 WARNING: Swagger UI is enabled in production environment');
+    console.warn('  Ensure SWAGGER_ALLOWED_IPS is configured for IP restrictions');
+    console.warn('  API documentation will require valid API key authentication');
+
+    // Check if IP whitelist is configured
+    if (!process.env.SWAGGER_ALLOWED_IPS) {
+      console.warn('  Consider setting SWAGGER_ALLOWED_IPS for additional security');
+    }
+  }
+
+  // Validate CORS origins in production
+  if (env.CORS_ORIGINS?.includes('localhost') || env.CORS_ORIGINS?.includes('*')) {
+    console.warn('🚨 WARNING: Insecure CORS origins detected in production');
+    console.warn('  Remove localhost and wildcard origins from CORS_ORIGINS');
+  }
+
+  // Ensure rate limiting is properly configured
+  if (env.RATE_LIMIT_MAX > 1000) {
+    console.warn('🚨 WARNING: Rate limit seems high for production (>1000 requests)');
+  }
+
+  // Security contact validation
+  if (!process.env.SECURITY_CONTACT_EMAIL) {
+    console.warn('⚠️  Consider setting SECURITY_CONTACT_EMAIL for security incident reporting');
   }
 }
 
@@ -217,4 +246,3 @@ export const loadSensitiveSecrets = async () => {
 };
 
 export type SensitiveSecrets = Awaited<ReturnType<typeof loadSensitiveSecrets>>;
-

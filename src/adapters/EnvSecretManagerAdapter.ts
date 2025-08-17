@@ -1,4 +1,4 @@
-import { SecretManagerPort } from '../../src/ports/SecretManagerPort';
+import { SecretManagerPort } from '@/ports/SecretManagerPort';
 
 export class EnvSecretManagerAdapter implements SecretManagerPort {
   async getSecret(key: string): Promise<string | undefined> {

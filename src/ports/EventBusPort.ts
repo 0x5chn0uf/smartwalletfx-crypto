@@ -1,5 +1,3 @@
-import { ChainId } from '@/types/blockchain';
-
 /**
  * Base interface for all integration events in the system
  * Following Cloud Events specification for future compatibility

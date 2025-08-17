@@ -4,9 +4,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma, dbUtils } from '@/utils/database';
 import { logger } from '@/utils/logger';
-import {
-  TokenCreateSchema,
-} from './validators';
+import { TokenCreateSchema } from './validators';
 import {
   TokenWithPrice,
   QueryOptions,

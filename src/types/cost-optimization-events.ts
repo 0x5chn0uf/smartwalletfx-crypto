@@ -124,6 +124,8 @@ export interface EventProcessingMetrics {
   queueLength: number;
   lastProcessedAt: number;
   errorsByType: Record<string, number>;
-  handlerPerformance: Record<string, { averageTime: number; successRate: number; totalInvocations: number }>;
+  handlerPerformance: Record<
+    string,
+    { averageTime: number; successRate: number; totalInvocations: number }
+  >;
 }
-

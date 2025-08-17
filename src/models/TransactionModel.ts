@@ -4,10 +4,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma, dbUtils } from '@/utils/database';
 import { logger } from '@/utils/logger';
-import {
-  TransactionCreateSchema,
-  TransactionUpdateSchema,
-} from './validators';
+import { TransactionCreateSchema, TransactionUpdateSchema } from './validators';
 import {
   TransactionWithTransfers,
   TransactionQueryOptions,
@@ -778,13 +775,25 @@ export class TransactionModel {
       const incoming = recentTransactions.filter(tx => tx.to === walletAddress);
       const outgoing = recentTransactions.filter(tx => tx.from === walletAddress);
 
-      const totalValueUSD = recentTransactions.reduce((sum, tx) => sum + (tx.valueUSD?.toNumber() || 0), 0);
+      const totalValueUSD = recentTransactions.reduce(
+        (sum, tx) => sum + (tx.valueUSD?.toNumber() || 0),
+        0
+      );
 
-      const totalGasFeeUSD = recentTransactions.reduce((sum, tx) => sum + (tx.gasFeeUSD?.toNumber() || 0), 0);
+      const totalGasFeeUSD = recentTransactions.reduce(
+        (sum, tx) => sum + (tx.gasFeeUSD?.toNumber() || 0),
+        0
+      );
 
-      const incomingValueUSD = incoming.reduce((sum, tx) => sum + (tx.valueUSD?.toNumber() || 0), 0);
+      const incomingValueUSD = incoming.reduce(
+        (sum, tx) => sum + (tx.valueUSD?.toNumber() || 0),
+        0
+      );
 
-      const outgoingValueUSD = outgoing.reduce((sum, tx) => sum + (tx.valueUSD?.toNumber() || 0), 0);
+      const outgoingValueUSD = outgoing.reduce(
+        (sum, tx) => sum + (tx.valueUSD?.toNumber() || 0),
+        0
+      );
 
       return {
         totalTransactions: recentTransactions.length,

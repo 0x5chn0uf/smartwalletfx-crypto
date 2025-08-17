@@ -2,27 +2,27 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import { registry, httpDuration } from '@/utils/metrics';
+import { registry, httpDuration } from './utils/metrics';
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import { v4 as uuidv4 } from 'uuid';
-import { logger } from '@/utils/logger';
-import { redisManager } from '@/utils/redis';
-import { getSimpleChainManager } from '@/services/SimpleChainManager';
-import { getCostTracker } from '@/services/cost/CostTracker';
-import { requestLogger } from '@/middleware/requestLogger';
-import { errorHandler } from '@/middleware/errorHandler';
-import { costTrackingMiddleware } from '@/middleware/costTrackingMiddleware';
-import { apiKeyAuth } from '@/middleware/auth';
-import { createRedisRateLimiter } from '@/middleware/redisRateLimiter';
+import { logger } from './utils/logger';
+import { redisManager } from './utils/redis';
+import { getSimpleChainManager } from './services/SimpleChainManager';
+import { getCostTracker } from './services/cost/CostTracker';
+import { requestLogger } from './middleware/requestLogger';
+import { errorHandler } from './middleware/errorHandler';
+import { costTrackingMiddleware } from './middleware/costTrackingMiddleware';
+import { apiKeyAuth } from './middleware/auth';
+import { createRedisRateLimiter } from './middleware/redisRateLimiter';
 
 // Import route handlers
-import { createHealthRoutes } from '@/routes/healthRouteFactory';
-import { createProtocolsRoutes } from '@/routes/protocolsRouteFactory';
-import { createPortfolioRoutes } from '@/routes/portfolioRouteFactory';
-import { createDeFiRoutes } from '@/routes/defiRouteFactory';
-import { createNFTRoutes } from '@/routes/nftRouteFactory';
-import { createSolanaRoutes } from '@/routes/solanaRouteFactory';
+import { createHealthRoutes } from './routes/healthRouteFactory';
+import { createProtocolsRoutes } from './routes/protocolsRouteFactory';
+import { createPortfolioRoutes } from './routes/portfolioRouteFactory';
+import { createDeFiRoutes } from './routes/defiRouteFactory';
+import { createNFTRoutes } from './routes/nftRouteFactory';
+import { createSolanaRoutes } from './routes/solanaRouteFactory';
 import { getRuntime } from './app/runtime';
 
 export default (config: any) => {
@@ -63,8 +63,6 @@ export default (config: any) => {
       // SECURITY FIX: Add missing critical headers
       noSniff: true, // X-Content-Type-Options: nosniff
       referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-      xssFilter: true,
-      frameguard: { action: 'deny' }, // X-Frame-Options: DENY
     })
   );
 
@@ -456,6 +454,8 @@ export default (config: any) => {
         });
       }
 
+      const chainManager = getSimpleChainManager();
+      const healthStatus = chainManager.getHealthStatus();
       const costStats = getCostTracker().getCurrentStats();
       const redisInfo = await redisManager.ping();
 

@@ -2,12 +2,9 @@
 // Database operations for DeFi position management and tracking
 
 import { Prisma } from '@prisma/client';
-import { prisma, dbUtils } from '@/utils/database';
-import { logger } from '@/utils/logger';
-import {
-  DeFiPositionCreateSchema,
-  DeFiPositionUpdateSchema,
-} from './validators';
+import { prisma, dbUtils } from '../utils/database';
+import { logger } from '../utils/logger';
+import { DeFiPositionCreateSchema, DeFiPositionUpdateSchema } from './validators';
 import {
   DeFiPositionWithRelations,
   DeFiPositionQueryOptions,
@@ -16,13 +13,14 @@ import {
   NotFoundError,
   BatchResult,
 } from './types';
+import { z } from 'zod';
 
 export class DeFiPositionModel {
   /**
    * Create a new DeFi position
    */
   static async create(
-    data: typeof DeFiPositionCreateSchema._input
+    data: z.infer<typeof DeFiPositionCreateSchema>
   ): Promise<DeFiPositionWithRelations> {
     try {
       const validatedData = DeFiPositionCreateSchema.parse(data);
@@ -390,7 +388,7 @@ export class DeFiPositionModel {
    */
   static async update(
     id: string,
-    data: typeof DeFiPositionUpdateSchema._input
+    data: z.infer<typeof DeFiPositionUpdateSchema>
   ): Promise<DeFiPositionWithRelations> {
     try {
       const validatedData = DeFiPositionUpdateSchema.parse(data);

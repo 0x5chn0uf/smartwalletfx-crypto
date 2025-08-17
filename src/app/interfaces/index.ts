@@ -1,11 +1,10 @@
-import type { Config } from '@/config';
-import type { SimpleChainManager } from '@/services/SimpleChainManager';
-import type { SolanaProvider } from '@/services/providers/SolanaProvider';
-import type { DeFiPort } from '@/ports/DeFiPort';
-import type { NFTPort } from '@/ports/NFTPort';
-import type { SolanaPort } from '@/ports/SolanaPort';
-import type { AsyncPortfolioService } from '@/services/AsyncPortfolioService';
-import type { WorkerManager } from '../../workers/WorkerManager';
+import type { Config } from '../../config';
+import type { SimpleChainManager } from '../../services/SimpleChainManager';
+import type { SolanaProvider } from '../../services/providers/SolanaProvider';
+import type { DeFiPort } from '../../ports/DeFiPort';
+import type { NFTPort } from '../../ports/NFTPort';
+import type { SolanaPort } from '../../ports/SolanaPort';
+import type { AsyncPortfolioService } from '../../services/AsyncPortfolioService';
 
 export interface ServiceDependencies {
   chainManager: SimpleChainManager;
@@ -14,7 +13,6 @@ export interface ServiceDependencies {
   nftPort: NFTPort;
   solanaPort: SolanaPort;
   eventBus: any;
-  workerManager: WorkerManager;
   priceService: any;
   asyncPortfolioService: AsyncPortfolioService;
   costTracker: any;
@@ -28,7 +26,6 @@ export interface RuntimeHealthStatus {
     redis: boolean;
     chainManager: boolean;
     eventBus: boolean;
-    workers: boolean;
     defi: boolean;
     nft: boolean;
     solana: boolean;

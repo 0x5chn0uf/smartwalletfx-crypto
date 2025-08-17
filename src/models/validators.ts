@@ -1,8 +1,9 @@
+// Test comment
 // Database Validation Schemas and Utilities
 // Centralized validation for all database operations
 
 import { z } from 'zod';
-import type { ValidationResult } from '@/models/interfaces';
+import type { ValidationResult } from './interfaces';
 
 // Re-export common base schemas from models/schema/common
 export {
@@ -19,24 +20,26 @@ export {
   FutureDateSchema,
   PastDateSchema,
   PaginationSchema,
-} from '@/models/schema/common';
+} from './schema/common';
 
 // Re-export specific entity schemas from models/schema/*
 export {
   UserWalletCreateSchema,
   UserWalletUpdateSchema,
   UserWalletQuerySchema,
-} from '@/models/schema/userWallet';
+} from './schema/userWallet';
 
-export { TokenCreateSchema, TokenUpdateSchema, TokenQuerySchema } from '@/models/schema/token';
+export { TokenCreateSchema, TokenUpdateSchema, TokenQuerySchema } from './schema/token';
 
-export { TokenBalanceCreateSchema, TokenBalanceUpdateSchema } from '@/models/schema/tokenBalance';
+export { TokenBalanceCreateSchema, TokenBalanceUpdateSchema } from './schema/tokenBalance';
 
-export { PriceCacheCreateSchema } from '@/models/schema/priceCache';
+export { PriceCacheCreateSchema } from './schema/priceCache';
 
 // ============================================================================
 // PORTFOLIO VALIDATIONS
 // ============================================================================
+
+import { CuidSchema, ChainIdSchema, NonNegativeNumberSchema, PercentageSchema } from './schema/common';
 
 export const PortfolioCreateSchema = z.object({
   walletId: CuidSchema,

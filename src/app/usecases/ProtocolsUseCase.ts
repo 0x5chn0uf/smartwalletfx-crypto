@@ -1,4 +1,4 @@
-import { ServiceDeps as ServiceDependencies } from '@/app/runtime';
+import { ServiceDeps as ServiceDependencies } from '../runtime';
 
 export class ProtocolsUseCase {
   constructor(private readonly deps: ServiceDependencies) {}
@@ -14,11 +14,22 @@ export class ProtocolsUseCase {
 
     const supportedChains = Object.entries(cfg.chains)
       .filter(([, c]: any) => (c as any).enabled)
-      .map(([id, c]: any) => ({ id, name: c.name, symbol: c.symbol, chainId: c.id, enabled: c.enabled }));
+      .map(([id, c]: any) => ({
+        id,
+        name: c.name,
+        symbol: c.symbol,
+        chainId: c.id,
+        enabled: c.enabled,
+      }));
 
     const defiHealthy = Object.values(defiHealthStatus).filter((h: any) => h.isHealthy).length;
-    const nftDetectorsHealthy = Object.values(nftHealthStatus.detectors).filter((d: any) => d.isHealthy).length;
-    const nftEnrichersHealthy = Object.values(nftHealthStatus.enrichers).filter((e: any) => e.isHealthy).length;
+    const nftDetectorsHealthy = Object.values(nftHealthStatus.detectors).filter(
+      (d: any) => d.isHealthy
+    ).length;
+    const nftEnrichersHealthy = Object.values(nftHealthStatus.enrichers).filter(
+      (e: any) => e.isHealthy
+    ).length;
+    const healthPercentage = chainsHealth.totalProviders > 0 ? (chainsHealth.healthyProviders / chainsHealth.totalProviders) * 100 : 0;
 
     return {
       defi: {
@@ -27,9 +38,14 @@ export class ProtocolsUseCase {
         summary: {
           total: defiProtocols.length,
           healthy: defiHealthy,
-          healthPercentage: defiProtocols.length > 0 ? (defiHealthy / defiProtocols.length) * 100 : 0,
+          healthPercentage:
+            defiProtocols.length > 0 ? (defiHealthy / defiProtocols.length) * 100 : 0,
           capabilities: [
-            'Position tracking', 'Yield farming detection', 'Lending/borrowing monitoring', 'Liquidity provision tracking', 'Risk assessment'
+            'Position tracking',
+            'Yield farming detection',
+            'Lending/borrowing monitoring',
+            'Liquidity provision tracking',
+            'Risk assessment',
           ],
         },
       },
@@ -52,7 +68,7 @@ export class ProtocolsUseCase {
           totalChains: supportedChains.length,
           healthyProviders: chainsHealth.healthyProviders,
           totalProviders: chainsHealth.totalProviders,
-          healthPercentage: chainsHealth.healthPercentage,
+          healthPercentage: healthPercentage,
         },
       },
     };

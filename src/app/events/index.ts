@@ -1,17 +1,17 @@
 /**
  * Event Contracts for Crypto Data Service
- * 
+ *
  * This module exports all event types and utilities for the event-driven
  * architecture implementation following hexagonal design principles.
- * 
+ *
  * Event Versioning:
  * - All events follow semantic versioning (V1, V2, etc.)
  * - Breaking changes require new versions
  * - Non-breaking additions can extend existing versions
- * 
+ *
  * Event Categories:
  * - DeFi: Position fetching and processing events
- * - Portfolio: Aggregation and computation events  
+ * - Portfolio: Aggregation and computation events
  * - System: Infrastructure and monitoring events
  */
 
@@ -27,17 +27,17 @@ export * from '@/ports/EventBusPort';
 export const ALL_EVENT_TYPES = {
   // DeFi Events
   DEFI_POSITIONS_REQUESTED: 'DeFiPositionsRequestedV1',
-  DEFI_POSITIONS_FETCHED: 'DeFiPositionsFetchedV1', 
+  DEFI_POSITIONS_FETCHED: 'DeFiPositionsFetchedV1',
   DEFI_POSITIONS_ERROR: 'DeFiPositionsErrorV1',
-  
+
   // Portfolio Events
   PORTFOLIO_COMPUTED: 'PortfolioComputedV1',
   CACHE_WARM_REQUEST: 'CacheWarmRequestV1',
   PORTFOLIO_AGGREGATION_REQUEST: 'PortfolioAggregationRequestV1',
   PORTFOLIO_AGGREGATION_COMPLETED: 'PortfolioAggregationCompletedV1',
   PORTFOLIO_AGGREGATION_ERROR: 'PortfolioAggregationErrorV1',
-  
-  // System Events  
+
+  // System Events
   PROVIDER_HEALTH_CHANGED: 'ProviderHealthChangedV1',
   COST_THRESHOLD_EXCEEDED: 'CostThresholdExceededV1',
   PERFORMANCE_ALERT: 'PerformanceAlertV1',
@@ -46,19 +46,31 @@ export const ALL_EVENT_TYPES = {
 } as const;
 
 // Type union for all event types
-export type AllEventTypes = typeof ALL_EVENT_TYPES[keyof typeof ALL_EVENT_TYPES];
+export type AllEventTypes = (typeof ALL_EVENT_TYPES)[keyof typeof ALL_EVENT_TYPES];
 
 // Event categories for subscription patterns
 export const EVENT_CATEGORIES = {
   DEFI: ['DeFiPositionsRequestedV1', 'DeFiPositionsFetchedV1', 'DeFiPositionsErrorV1'],
-  PORTFOLIO: ['PortfolioComputedV1', 'CacheWarmRequestV1', 'PortfolioAggregationRequestV1', 'PortfolioAggregationCompletedV1', 'PortfolioAggregationErrorV1'],
-  SYSTEM: ['ProviderHealthChangedV1', 'CostThresholdExceededV1', 'PerformanceAlertV1', 'CacheInvalidationRequestV1', 'SystemMaintenanceV1'],
+  PORTFOLIO: [
+    'PortfolioComputedV1',
+    'CacheWarmRequestV1',
+    'PortfolioAggregationRequestV1',
+    'PortfolioAggregationCompletedV1',
+    'PortfolioAggregationErrorV1',
+  ],
+  SYSTEM: [
+    'ProviderHealthChangedV1',
+    'CostThresholdExceededV1',
+    'PerformanceAlertV1',
+    'CacheInvalidationRequestV1',
+    'SystemMaintenanceV1',
+  ],
 } as const;
 
 // Event priority levels (for queue prioritization)
 export const EVENT_PRIORITIES = {
   LOW: 1,
-  MEDIUM: 5, 
+  MEDIUM: 5,
   HIGH: 10,
   URGENT: 20,
   CRITICAL: 50,
@@ -75,25 +87,27 @@ export function isRetriableEvent(eventType: string, error: any): boolean {
   if (EVENT_CATEGORIES.SYSTEM.includes(eventType as any)) {
     return false;
   }
-  
+
   // Network/timeout errors are usually retriable
   if (error?.code === 'NETWORK_ERROR' || error?.code === 'TIMEOUT') {
     return true;
   }
-  
+
   // Validation errors are not retriable
   if (error?.code === 'VALIDATION_ERROR' || error?.code === 'INVALID_INPUT') {
     return false;
   }
-  
+
   // Rate limit errors are retriable after delay
   if (error?.code === 'RATE_LIMITED') {
     return true;
   }
-  
+
   // Default to retriable for data processing events
-  return EVENT_CATEGORIES.DEFI.includes(eventType as any) || 
-         EVENT_CATEGORIES.PORTFOLIO.includes(eventType as any);
+  return (
+    EVENT_CATEGORIES.DEFI.includes(eventType as any) ||
+    EVENT_CATEGORIES.PORTFOLIO.includes(eventType as any)
+  );
 }
 
 /**
@@ -102,11 +116,11 @@ export function isRetriableEvent(eventType: string, error: any): boolean {
 export function getRetryDelayMs(eventType: string, attemptNumber: number): number {
   const baseDelayMs = 1000; // 1 second
   const maxDelayMs = 300000; // 5 minutes
-  
+
   // Exponential backoff with jitter
   const exponentialDelay = baseDelayMs * Math.pow(2, attemptNumber - 1);
   const jitter = Math.random() * 0.1 * exponentialDelay; // 10% jitter
-  
+
   return Math.min(exponentialDelay + jitter, maxDelayMs);
 }
 

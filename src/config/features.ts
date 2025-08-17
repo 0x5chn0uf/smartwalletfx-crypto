@@ -1,6 +1,6 @@
 /**
  * Feature Flags for Complex Subsystems
- * 
+ *
  * Gates intelligent batching, ML prediction, and optimizers behind flags
  * as specified in PRD section 6 - Feature Flags for Complex Subsystems.
  */
@@ -18,7 +18,7 @@ export interface FeatureFlags {
   swagger: boolean;
   cacheWarming: boolean;
   asyncPortfolio: boolean;
-  
+
   // Intelligent/ML subsystems
   intelligentBatching: boolean;
   mlCacheWarming: boolean;
@@ -27,18 +27,18 @@ export interface FeatureFlags {
   costOptimization: boolean;
   realTimeOptimizer: boolean;
   predictiveAnalytics: boolean;
-  
+
   // Performance features
   adaptiveConcurrency: boolean;
   intelligentRetries: boolean;
   dynamicRateLimiting: boolean;
   requestDeduplication: boolean;
-  
+
   // Advanced monitoring
   enhancedMetrics: boolean;
   performanceTracking: boolean;
   anomalyDetection: boolean;
-  
+
   // Experimental features
   experimental: {
     neuralNetworkRouting: boolean;
@@ -58,7 +58,7 @@ const DEFAULT_FEATURES: FeatureFlags = {
   swagger: true,
   cacheWarming: true,
   asyncPortfolio: true,
-  
+
   // Intelligent/ML subsystems - disabled by default for safety
   intelligentBatching: false,
   mlCacheWarming: false,
@@ -67,18 +67,18 @@ const DEFAULT_FEATURES: FeatureFlags = {
   costOptimization: false,
   realTimeOptimizer: false,
   predictiveAnalytics: false,
-  
+
   // Performance features - selective enabling
   adaptiveConcurrency: true,
   intelligentRetries: true,
   dynamicRateLimiting: false,
   requestDeduplication: true,
-  
+
   // Advanced monitoring - enabled for observability
   enhancedMetrics: true,
   performanceTracking: true,
   anomalyDetection: false,
-  
+
   // Experimental features - all disabled by default
   experimental: {
     neuralNetworkRouting: false,
@@ -93,7 +93,7 @@ const DEFAULT_FEATURES: FeatureFlags = {
  */
 function getEnvironmentFeatures(): Partial<FeatureFlags> {
   const env = process.env.NODE_ENV;
-  
+
   switch (env) {
     case 'development':
       return {
@@ -105,7 +105,7 @@ function getEnvironmentFeatures(): Partial<FeatureFlags> {
         intelligentBatching: process.env.ENABLE_ML_FEATURES === 'true',
         mlCacheWarming: process.env.ENABLE_ML_FEATURES === 'true',
       };
-      
+
     case 'staging':
       return {
         swagger: true,
@@ -116,7 +116,7 @@ function getEnvironmentFeatures(): Partial<FeatureFlags> {
         performanceTracking: true,
         anomalyDetection: true,
       };
-      
+
     case 'production':
       return {
         swagger: process.env.ENABLE_SWAGGER === 'true',
@@ -128,7 +128,7 @@ function getEnvironmentFeatures(): Partial<FeatureFlags> {
         costOptimization: process.env.ENABLE_COST_OPTIMIZATION === 'true',
         realTimeOptimizer: process.env.ENABLE_REAL_TIME_OPTIMIZER === 'true',
       };
-      
+
     case 'test':
       return {
         // Disable most features for testing
@@ -140,7 +140,7 @@ function getEnvironmentFeatures(): Partial<FeatureFlags> {
         mlCacheWarming: false,
         enhancedMetrics: false,
       };
-      
+
     default:
       return {};
   }
@@ -153,7 +153,7 @@ function loadFeatureFlags(config: Config): FeatureFlags {
   const baseFeatures = { ...DEFAULT_FEATURES };
   const envFeatures = getEnvironmentFeatures();
   const configFeatures = config.features || {};
-  
+
   // Merge configurations with precedence: env > config > defaults
   const mergedFeatures = {
     ...baseFeatures,
@@ -165,29 +165,29 @@ function loadFeatureFlags(config: Config): FeatureFlags {
       ...envFeatures.experimental,
     },
   };
-  
+
   // Environment variable overrides for specific flags
   Object.keys(mergedFeatures).forEach(key => {
     if (key === 'experimental') return; // Handle separately
-    
+
     const envKey = `FEATURE_${key.toUpperCase()}`;
     const envValue = process.env[envKey];
-    
+
     if (envValue !== undefined) {
       (mergedFeatures as any)[key] = envValue.toLowerCase() === 'true';
     }
   });
-  
+
   // Handle experimental features
   Object.keys(mergedFeatures.experimental).forEach(key => {
     const envKey = `EXPERIMENTAL_${key.toUpperCase()}`;
     const envValue = process.env[envKey];
-    
+
     if (envValue !== undefined) {
       (mergedFeatures.experimental as any)[key] = envValue.toLowerCase() === 'true';
     }
   });
-  
+
   return mergedFeatures;
 }
 
@@ -208,13 +208,13 @@ export class FeatureChecker {
   constructor(features: FeatureFlags) {
     this._features = features;
   }
-  
+
   /**
    * Check if a feature is enabled with optional logging
    */
   isEnabled(feature: keyof FeatureFlags, logUsage = false): boolean {
     const enabled = this._features[feature] as boolean;
-    
+
     if (logUsage && !FeatureChecker.loggedFeatures.has(feature)) {
       logger.info('Feature flag checked', {
         feature,
@@ -223,16 +223,16 @@ export class FeatureChecker {
       });
       FeatureChecker.loggedFeatures.add(feature);
     }
-    
+
     return enabled;
   }
-  
+
   /**
    * Check if an experimental feature is enabled
    */
   isExperimentalEnabled(feature: keyof FeatureFlags['experimental'], logUsage = false): boolean {
     const enabled = this._features.experimental[feature];
-    
+
     if (logUsage && !FeatureChecker.loggedFeatures.has(`experimental.${feature}`)) {
       logger.info('Experimental feature flag checked', {
         feature: `experimental.${feature}`,
@@ -241,10 +241,10 @@ export class FeatureChecker {
       });
       FeatureChecker.loggedFeatures.add(`experimental.${feature}`);
     }
-    
+
     return enabled;
   }
-  
+
   /**
    * Require a feature to be enabled (throws if disabled)
    */
@@ -254,7 +254,7 @@ export class FeatureChecker {
       throw new Error(error);
     }
   }
-  
+
   /**
    * Get feature status summary
    */
@@ -267,10 +267,12 @@ export class FeatureChecker {
   } {
     const mainFeatures = Object.keys(this._features).filter(key => key !== 'experimental');
     const experimentalFeatures = Object.keys(this._features.experimental);
-    
+
     const enabledMain = mainFeatures.filter(key => (this._features as any)[key]).length;
-    const enabledExperimental = experimentalFeatures.filter(key => this._features.experimental[key as keyof FeatureFlags['experimental']]).length;
-    
+    const enabledExperimental = experimentalFeatures.filter(
+      key => this._features.experimental[key as keyof FeatureFlags['experimental']]
+    ).length;
+
     return {
       total: mainFeatures.length,
       enabled: enabledMain,
@@ -306,7 +308,10 @@ export function requireFeature(features: FeatureFlags, feature: keyof FeatureFla
 /**
  * Experimental feature middleware
  */
-export function requireExperimentalFeature(features: FeatureFlags, feature: keyof FeatureFlags['experimental']) {
+export function requireExperimentalFeature(
+  features: FeatureFlags,
+  feature: keyof FeatureFlags['experimental']
+) {
   return (req: any, res: any, next: any) => {
     if (!new FeatureChecker(features).isExperimentalEnabled(feature)) {
       return res.status(404).json({
@@ -331,17 +336,17 @@ export function requireExperimentalFeature(features: FeatureFlags, feature: keyo
 export class DeterministicBatcher {
   private static readonly BATCH_SIZE = 10;
   private static readonly BATCH_TIMEOUT = 100; // ms
-  
+
   static async batchRequests<T, R>(
     requests: T[],
     processor: (batch: T[]) => Promise<R[]>
   ): Promise<R[]> {
     const results: R[] = [];
-    
+
     // Simple batching without ML/intelligence
     for (let i = 0; i < requests.length; i += this.BATCH_SIZE) {
       const batch = requests.slice(i, i + this.BATCH_SIZE);
-      
+
       try {
         const batchResults = await processor(batch);
         results.push(...batchResults);
@@ -353,13 +358,13 @@ export class DeterministicBatcher {
         });
         throw error;
       }
-      
+
       // Small delay between batches to avoid overwhelming providers
       if (i + this.BATCH_SIZE < requests.length) {
         await new Promise(resolve => setTimeout(resolve, this.BATCH_TIMEOUT));
       }
     }
-    
+
     return results;
   }
 }
@@ -377,7 +382,7 @@ export function createServiceWithFeatures<T>(
     logger.info('Using intelligent implementation', { feature });
     return intelligentImplementation();
   }
-  
+
   logger.info('Using default implementation', { feature: feature || 'none' });
   return defaultImplementation();
 }
@@ -387,7 +392,7 @@ export function createServiceWithFeatures<T>(
  */
 export function initializeFeatures(features: FeatureFlags): void {
   const summary = new FeatureChecker(features).getSummary();
-  
+
   logger.info('Feature flags initialized', {
     environment: process.env.NODE_ENV,
     summary,
@@ -398,13 +403,13 @@ export function initializeFeatures(features: FeatureFlags): void {
       .filter(([, value]) => value)
       .map(([key]) => key),
   });
-  
+
   // Warn about enabled experimental features in production
   if (process.env.NODE_ENV === 'production') {
     const enabledExperimental = Object.entries(features.experimental)
       .filter(([, value]) => value)
       .map(([key]) => key);
-      
+
     if (enabledExperimental.length > 0) {
       logger.warn('Experimental features enabled in production', {
         features: enabledExperimental,

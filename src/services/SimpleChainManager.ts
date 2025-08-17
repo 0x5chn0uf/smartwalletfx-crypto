@@ -371,6 +371,13 @@ export class SimpleChainManager {
   }
 
   /**
+   * Get list of supported chains
+   */
+  getSupportedChains(): ChainId[] {
+    return Array.from(this.providers.keys());
+  }
+
+  /**
    * Get provider for a specific chain
    */
   getProvider(chainId: ChainId): ChainProvider | undefined {

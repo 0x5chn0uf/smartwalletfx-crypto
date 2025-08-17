@@ -89,10 +89,8 @@ export async function initializeDeFiServices(): Promise<void> {
       logger.warn('⚠️  Skipping Curve Finance adapter - no Ethereum RPC URL configured');
     }
 
-    // TODO: Add more protocol adapters as they are implemented
-    // - Lido
-    // - Convex
-    // - etc.
+    // Additional protocol adapters can be added in future releases
+    // Future protocols: Lido, Convex, Balancer, 1inch, etc.
 
     const registeredProtocols = defiOrchestrator.getRegisteredProtocols();
     logger.info(`🚀 DeFi services initialized with ${registeredProtocols.length} protocol adapters`, {

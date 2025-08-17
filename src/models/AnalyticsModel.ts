@@ -2,16 +2,17 @@
 // Database operations for analytics events and metrics tracking
 
 import { Prisma } from '@prisma/client';
-import { prisma, dbUtils } from '@/utils/database';
-import { logger } from '@/utils/logger';
+import { prisma, dbUtils } from '../utils/database';
+import { logger } from '../utils/logger';
 import { AnalyticsEventCreateSchema } from './validators';
 import { QueryOptions, DatabaseError, NotFoundError, BatchResult } from './types';
+import { z } from 'zod';
 
 export class AnalyticsModel {
   /**
    * Create a new analytics event
    */
-  static async create(data: typeof AnalyticsEventCreateSchema._input): Promise<any> {
+  static async create(data: z.infer<typeof AnalyticsEventCreateSchema>): Promise<any> {
     try {
       const validatedData = AnalyticsEventCreateSchema.parse(data);
 
@@ -222,7 +223,7 @@ export class AnalyticsModel {
    * Bulk create analytics events
    */
   static async bulkCreate(
-    eventsData: Array<typeof AnalyticsEventCreateSchema._input>
+    eventsData: Array<z.infer<typeof AnalyticsEventCreateSchema>>
   ): Promise<BatchResult<any>> {
     const startTime = Date.now();
     const results: any[] = [];

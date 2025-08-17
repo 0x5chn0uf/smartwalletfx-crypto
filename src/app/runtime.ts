@@ -1,29 +1,29 @@
-import { logger } from '@/utils/logger';
-import { Config } from '@/config';
-import { redisManager } from '@/utils/redis';
-import { SimpleChainManager, getSimpleChainManager } from '@/services/SimpleChainManager';
-import { DeFiOrchestrator } from '@/services/defi/DeFiOrchestrator';
-import { NFTOrchestrator, nftOrchestrator } from '@/services/nft/NFTOrchestrator';
-import { EventBusFactory } from '@/events/EventBusFactory';
-import { WorkerManager, createWorkerManager } from '@/workers/WorkerManager';
-import { getPriceService } from '@/services/pricing/PriceService';
-import { AsyncPortfolioService } from '@/services/AsyncPortfolioService';
-import { getCostTracker } from '@/services/cost/CostTracker';
-import { getCacheManager } from '@/services/cache/CacheManager';
-import { CHAIN_CONFIGS } from '@/types/blockchain';
-import { initializeDeFiServices } from '@/services/defi';
-import { initializeNFTServices } from '@/services/nft';
-import { SolanaOrchestrator } from '@/services/defi/SolanaOrchestrator';
-import { SolanaProvider } from '@/services/providers/SolanaProvider';
-import type { DeFiPort } from '@/ports/DeFiPort';
-import type { NFTPort } from '@/ports/NFTPort';
-import type { SolanaPort } from '@/ports/SolanaPort';
-import type {
+import { logger } from '../utils/logger';
+import { Config } from '../config';
+import { redisManager } from '../utils/redis';
+import { SimpleChainManager, getSimpleChainManager } from '../services/SimpleChainManager';
+import { DeFiOrchestrator } from '../services/defi/DeFiOrchestrator';
+import { NFTOrchestrator, nftOrchestrator } from '../services/nft/NFTOrchestrator';
+import { EventBusFactory } from '../events/EventBusFactory';
+import { getPriceService } from '../services/pricing/PriceService';
+import { AsyncPortfolioService } from '../services/AsyncPortfolioService';
+import { getCostTracker } from '../services/cost/CostTracker';
+import { getCacheManager } from '../services/cache/CacheManager';
+import { CHAIN_CONFIGS } from '../types/blockchain';
+import { initializeDeFiServices } from '../services/defi';
+import { initializeNFTServices } from '../services/nft';
+import { SolanaOrchestrator } from '../services/defi/SolanaOrchestrator';
+import { SolanaProvider } from '../services/providers/SolanaProvider';
+import type { DeFiPort } from '../ports/DeFiPort';
+import type { NFTPort } from '../ports/NFTPort';
+import type { SolanaPort } from '../ports/SolanaPort';
+import {
   ServiceDependencies,
   Runtime as RuntimeInterface,
   RuntimeHealthStatus,
   RuntimeState,
-} from '@/app/interfaces';
+} from './interfaces';
+import { SolanaProtocol } from '../types/solana-defi';
 
 class CryptoDataRuntime implements RuntimeInterface {
   private state: RuntimeState = 'uninitialized';
@@ -136,13 +136,6 @@ class CryptoDataRuntime implements RuntimeInterface {
       const priceService = getPriceService();
       logger.info('✅ Price service initialized');
 
-      // 7. Initialize Worker Manager
-      logger.info('⚙️  Initializing worker manager...');
-      const workerManager = createWorkerManager(eventBus, defiOrchestrator, {
-        healthCheckIntervalMs: 30000,
-      });
-      await workerManager.start();
-      logger.info('✅ Worker manager started');
 
       // 8. Initialize Async Portfolio Service
       logger.info('📊 Initializing async portfolio service...');
@@ -160,7 +153,7 @@ class CryptoDataRuntime implements RuntimeInterface {
       const solanaOrchestrator = new SolanaOrchestrator({
         rpcUrl: solanaConfig.rpcUrl || 'https://api.mainnet-beta.solana.com',
         heliusApiKey: this._config.apiKeys.helius,
-        enabledProtocols: ['jupiter', 'raydium', 'orca'],
+        enabledProtocols: [SolanaProtocol.JUPITER, SolanaProtocol.RAYDIUM, SolanaProtocol.ORCA],
         cacheSettings: {
           portfolio: this._config.cache.ttl.medium,
           analytics: this._config.cache.ttl.long,
@@ -197,7 +190,6 @@ class CryptoDataRuntime implements RuntimeInterface {
         nftPort,
         solanaPort,
         eventBus,
-        workerManager,
         priceService,
         asyncPortfolioService,
         costTracker,
@@ -234,11 +226,6 @@ class CryptoDataRuntime implements RuntimeInterface {
       if (this._dependencies) {
         // Stop services in reverse order of initialization
 
-        // 1. Stop workers first
-        logger.info('⚙️  Stopping workers...');
-        if (this._dependencies.workerManager) {
-          await this._dependencies.workerManager.stop();
-        }
 
         // 2. Stop orchestrators if managed (not exposed via dependencies)
 
@@ -278,7 +265,6 @@ class CryptoDataRuntime implements RuntimeInterface {
           redis: false,
           chainManager: false,
           eventBus: false,
-          workers: false,
           defi: false,
           nft: false,
           solana: false,
@@ -295,7 +281,6 @@ class CryptoDataRuntime implements RuntimeInterface {
         redis: redisHealthy,
         chainManager: chainHealth.healthyProviders > 0,
         eventBus: true, // Health check implemented via EventBus interface
-        workers: this._dependencies.workerManager.isHealthy() || true,
         defi: Object.values(this._dependencies.defiPort.getHealthStatus()).some(h => h.isHealthy),
         nft: true, // NFT service health integrated via orchestrator
         solana: this._dependencies.solanaProvider.isHealthy() || true,
@@ -324,7 +309,6 @@ class CryptoDataRuntime implements RuntimeInterface {
           redis: false,
           chainManager: false,
           eventBus: false,
-          workers: false,
           defi: false,
           nft: false,
           solana: false,

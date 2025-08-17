@@ -14,7 +14,7 @@ import {
   validateAddress,
   formatAddress,
   CHAIN_CONFIGS,
-} from '@/types/blockchain';
+} from '../../types/blockchain';
 
 export abstract class BaseProvider implements ChainProvider {
   protected readonly axios: AxiosInstance;

@@ -3,7 +3,7 @@ import { PortfolioAggregationRequestV1, PORTFOLIO_EVENT_TYPES } from '@/app/even
 import { redisManager } from '@/utils/redis';
 import { logger } from '@/utils/logger';
 import { ChainId } from '@/types/blockchain';
-import { config } from '@/config';
+import { config } from '../config';
 
 /**
  * Async Portfolio Service

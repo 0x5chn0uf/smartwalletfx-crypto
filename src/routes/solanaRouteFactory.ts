@@ -162,16 +162,13 @@ class SolanaRouteFactory extends BaseRouteFactory {
       logger.info('Solana DeFi positions request', this.logRequest(req, { address, options }));
 
       // Use injected port for positions
-      const positionsResult = await this.dependencies.solanaPort.getDeFiPositions(
-        address,
-        {
-          protocols: options.protocols,
-          includeInactive: options.includeInactive,
-          includeYield: options.includeYield,
-          includeRisk: options.includeRisk,
-          minValue: options.minValue,
-        }
-      );
+      const positionsResult = await this.dependencies.solanaPort.getDeFiPositions(address, {
+        protocols: options.protocols,
+        includeInactive: options.includeInactive,
+        includeYield: options.includeYield,
+        includeRisk: options.includeRisk,
+        minValue: options.minValue,
+      });
 
       if (!positionsResult.success) {
         return res

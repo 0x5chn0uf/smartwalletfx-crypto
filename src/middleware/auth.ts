@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { config } from '@/config';
+import type { Config } from '@/config';
 import { logger } from '@/utils/logger';
 import { UnauthorizedError } from '@/middleware/errorHandler';
 import type { JWTPayload } from '@/middleware/interfaces';
@@ -8,7 +8,9 @@ import type { JWTPayload } from '@/middleware/interfaces';
 // Extend Express Request interface to include user
 declare global {
   namespace Express {
-    interface Request { user?: JWTPayload }
+    interface Request {
+      user?: JWTPayload;
+    }
   }
 }
 
@@ -27,7 +29,7 @@ export const authMiddleware = async (
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     // Verify JWT token
-    const decoded = jwt.verify(token, config.security.jwtSecret) as JWTPayload;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || '') as JWTPayload;
 
     // Add user info to request
     req.user = decoded;
@@ -70,7 +72,7 @@ export const optionalAuthMiddleware = async (
     }
 
     const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, config.security.jwtSecret) as JWTPayload;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || '') as JWTPayload;
     req.user = decoded;
 
     logger.debug('Optional auth: User authenticated', {
@@ -115,7 +117,7 @@ export const apiKeyAuth = (req: Request, res: Response, next: NextFunction): voi
   }
 
   // Validate against centrally-validated config
-  const validApiKeys = config.security.validApiKeys || [];
+  const validApiKeys = (process.env.VALID_API_KEYS || '').split(',').filter(Boolean) || [];
 
   if (!validApiKeys.includes(apiKey)) {
     logger.warn('Invalid API key used', {

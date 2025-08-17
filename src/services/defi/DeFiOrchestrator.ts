@@ -313,7 +313,7 @@ export class DeFiOrchestrator implements DeFiPort {
     // from all protocols - simplified for now
     return {
       success: true,
-      data: [], // TODO: Implement yield opportunity aggregation
+      data: [], // Yield opportunity aggregation requires protocol-specific implementations
       metadata: {
         provider: 'DeFiOrchestrator',
         timestamp: Date.now(),

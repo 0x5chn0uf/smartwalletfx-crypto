@@ -5,7 +5,11 @@ import type { RequestLogContext } from '@/middleware/interfaces';
 // Extend Express Request interface
 declare global {
   namespace Express {
-    interface Request { startTime: number; requestId: string; logContext: RequestLogContext }
+    interface Request {
+      startTime: number;
+      requestId: string;
+      logContext: RequestLogContext;
+    }
   }
 }
 

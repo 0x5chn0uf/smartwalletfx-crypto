@@ -2,12 +2,9 @@
 // Database operations for NFT token management
 
 import { Prisma } from '@prisma/client';
-import { prisma, dbUtils } from '@/utils/database';
-import { logger } from '@/utils/logger';
-import {
-  NFTTokenCreateSchema,
-  NFTTokenUpdateSchema,
-} from './validators';
+import { prisma, dbUtils } from '../utils/database';
+import { logger } from '../utils/logger';
+import { NFTTokenCreateSchema, NFTTokenUpdateSchema } from './validators';
 import {
   NFTTokenWithRelations,
   NFTQueryOptions,
@@ -17,12 +14,13 @@ import {
   ConflictError,
   BatchResult,
 } from './types';
+import { z } from 'zod';
 
 export class NFTTokenModel {
   /**
    * Create a new NFT token
    */
-  static async create(data: typeof NFTTokenCreateSchema._input): Promise<NFTTokenWithRelations> {
+  static async create(data: z.infer<typeof NFTTokenCreateSchema>): Promise<NFTTokenWithRelations> {
     try {
       const validatedData = NFTTokenCreateSchema.parse(data);
 
@@ -417,22 +415,22 @@ export class NFTTokenModel {
    */
   static async update(
     id: string,
-    data: typeof NFTTokenUpdateSchema._input
+    data: z.infer<typeof NFTTokenUpdateSchema>
   ): Promise<NFTTokenWithRelations> {
     try {
       const validatedData = NFTTokenUpdateSchema.parse(data);
 
-      if (validatedData.contractAddress) {
-        validatedData.contractAddress = validatedData.contractAddress.toLowerCase();
+      if ((validatedData as any).contractAddress) {
+        (validatedData as any).contractAddress = (validatedData as any).contractAddress.toLowerCase();
       }
-      if (validatedData.owner) {
-        validatedData.owner = validatedData.owner.toLowerCase();
+      if ((validatedData as any).owner) {
+        (validatedData as any).owner = (validatedData as any).owner.toLowerCase();
       }
 
       const nftToken = await prisma.nFTToken.update({
         where: { id },
         data: {
-          ...validatedData,
+          ...(validatedData as any),
           updatedAt: new Date(),
         },
         include: {

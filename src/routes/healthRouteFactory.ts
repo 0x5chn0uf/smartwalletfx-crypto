@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import type { ServiceDeps as ServiceDependencies } from '@/app/runtime';
 import { logger } from '@/utils/logger';
 import { redisManager } from '@/utils/redis';
-import { getEnhancedMetricsMiddleware } from '@/middleware/enhancedMetricsMiddleware';
 
 export function createHealthRoutes(dependencies: ServiceDependencies): Router {
   const factory = new HealthRouteFactory(dependencies);
@@ -15,22 +14,10 @@ class HealthRouteFactory {
   createRoutes(): Router {
     const router = Router();
 
-    const metricsMiddleware = getEnhancedMetricsMiddleware();
-    const handlers = metricsMiddleware.getRouteHandlers();
-    router.use(handlers.trackRequest);
-
     router.get('/', this.handleRoot.bind(this));
     router.get('/deep', this.handleDeep.bind(this));
     router.get('/liveness', this.handleLiveness.bind(this));
     router.get('/readiness', this.handleReadiness.bind(this));
-    router.get('/metrics', handlers.metrics);
-    router.get('/enhanced', handlers.health);
-    router.get('/dashboard', handlers.dashboard);
-    router.get('/cost', handlers.cost);
-    router.get('/events', handlers.events);
-    router.get('/cache-warming', handlers.cacheWarming);
-    router.get('/alerts', handlers.alerts);
-    router.post('/force-update', handlers.forceUpdate);
 
     return router;
   }
@@ -161,19 +148,17 @@ class HealthRouteFactory {
         requestId: req.requestId,
         processingTime,
       });
-      res
-        .status(503)
-        .json({
-          status: 'unhealthy',
+      res.status(503).json({
+        status: 'unhealthy',
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : 'Health check failed',
+        version: '1.0.0',
+        metadata: {
+          requestId: req.requestId,
           timestamp: new Date().toISOString(),
-          error: error instanceof Error ? error.message : 'Health check failed',
-          version: '1.0.0',
-          metadata: {
-            requestId: req.requestId,
-            timestamp: new Date().toISOString(),
-            processingTime,
-          },
-        });
+          processingTime,
+        },
+      });
     }
   }
 
@@ -229,14 +214,12 @@ class HealthRouteFactory {
         error: error instanceof Error ? error.message : 'Unknown error',
         requestId: req.requestId,
       });
-      res
-        .status(500)
-        .json({
-          status: 'error',
-          timestamp: new Date().toISOString(),
-          error: error instanceof Error ? error.message : 'Deep health check failed',
-          metadata: { requestId: req.requestId, timestamp: new Date().toISOString() },
-        });
+      res.status(500).json({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : 'Deep health check failed',
+        metadata: { requestId: req.requestId, timestamp: new Date().toISOString() },
+      });
     }
   }
 
@@ -259,25 +242,21 @@ class HealthRouteFactory {
           services: { redis: 'ready', blockchain: 'ready' },
         });
       } else {
-        res
-          .status(503)
-          .json({
-            status: 'not_ready',
-            timestamp: new Date().toISOString(),
-            services: {
-              redis: redisReady ? 'ready' : 'not_ready',
-              blockchain: chainReady ? 'ready' : 'not_ready',
-            },
-          });
-      }
-    } catch (error) {
-      res
-        .status(503)
-        .json({
+        res.status(503).json({
           status: 'not_ready',
           timestamp: new Date().toISOString(),
-          error: error instanceof Error ? error.message : 'Readiness check failed',
+          services: {
+            redis: redisReady ? 'ready' : 'not_ready',
+            blockchain: chainReady ? 'ready' : 'not_ready',
+          },
         });
+      }
+    } catch (error) {
+      res.status(503).json({
+        status: 'not_ready',
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : 'Readiness check failed',
+      });
     }
   }
 }

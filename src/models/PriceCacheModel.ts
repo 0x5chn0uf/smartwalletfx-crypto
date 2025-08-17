@@ -4,15 +4,8 @@
 import { Prisma } from '@prisma/client';
 import { prisma, dbUtils } from '@/utils/database';
 import { logger } from '@/utils/logger';
-import {
-  PriceCacheCreateSchema,
-} from './validators';
-import {
-  QueryOptions,
-  DatabaseError,
-  NotFoundError,
-  BatchResult,
-} from './types';
+import { PriceCacheCreateSchema } from './validators';
+import { QueryOptions, DatabaseError, NotFoundError, BatchResult } from './types';
 
 export class PriceCacheModel {
   /**

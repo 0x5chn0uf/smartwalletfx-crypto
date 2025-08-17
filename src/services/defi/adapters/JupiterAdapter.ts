@@ -1,6 +1,6 @@
 /**
  * Jupiter DEX Aggregator Adapter
- * 
+ *
  * Provides comprehensive integration with Jupiter for:
  * - DEX aggregation across Solana
  * - Best price routing
@@ -66,7 +66,7 @@ export class JupiterAdapter {
   constructor(config: JupiterAdapterConfig) {
     this.config = config;
     this.connection = new Connection(config.rpcUrl, 'confirmed');
-    
+
     this.httpClient = axios.create({
       baseURL: config.apiUrl,
       timeout: config.timeout,
@@ -82,7 +82,7 @@ export class JupiterAdapter {
   private setupInterceptors(): void {
     // Request interceptor for logging
     this.httpClient.interceptors.request.use(
-      (config) => {
+      config => {
         logger.debug('Jupiter API request', {
           method: config.method,
           url: config.url,
@@ -90,7 +90,7 @@ export class JupiterAdapter {
         });
         return config;
       },
-      (error) => {
+      error => {
         logger.error('Jupiter API request error', error);
         return Promise.reject(error);
       }
@@ -98,7 +98,7 @@ export class JupiterAdapter {
 
     // Response interceptor for error handling and logging
     this.httpClient.interceptors.response.use(
-      (response) => {
+      response => {
         logger.debug('Jupiter API response', {
           status: response.status,
           url: response.config.url,
@@ -106,7 +106,7 @@ export class JupiterAdapter {
         });
         return response;
       },
-      (error) => {
+      error => {
         logger.error('Jupiter API response error', {
           status: error.response?.status,
           message: error.message,
@@ -139,7 +139,7 @@ export class JupiterAdapter {
    */
   async getTokenList(): Promise<JupiterTokenInfo[]> {
     const cacheKey = 'jupiter:token-list';
-    
+
     try {
       // Try cache first
       const cached = await redisManager.get<JupiterTokenInfo[]>(cacheKey);
@@ -152,7 +152,7 @@ export class JupiterAdapter {
 
       // Cache for 1 hour
       await redisManager.set(cacheKey, tokens, this.config.cacheSettings.tokens);
-      
+
       logger.info(`Fetched ${tokens.length} tokens from Jupiter`);
       return tokens;
     } catch (error) {
@@ -176,7 +176,7 @@ export class JupiterAdapter {
     slippageBps: number = 50
   ): Promise<JupiterQuote> {
     const cacheKey = `jupiter:quote:${inputMint}:${outputMint}:${amount}:${slippageBps}`;
-    
+
     try {
       // Check cache (shorter TTL for quotes)
       const cached = await redisManager.get<JupiterQuote>(cacheKey);
@@ -198,7 +198,7 @@ export class JupiterAdapter {
 
       // Cache for 30 seconds (quotes change quickly)
       await redisManager.set(cacheKey, quote, this.config.cacheSettings.quotes);
-      
+
       return quote;
     } catch (error) {
       logger.error('Failed to get Jupiter quote', {
@@ -235,7 +235,10 @@ export class JupiterAdapter {
         computeUnitPriceMicroLamports: swapParams.computeUnitPriceMicroLamports,
       };
 
-      const response = await this.httpClient.post<{ swapTransaction: string }>('/swap', swapRequest);
+      const response = await this.httpClient.post<{ swapTransaction: string }>(
+        '/swap',
+        swapRequest
+      );
       return response.data.swapTransaction;
     } catch (error) {
       logger.error('Failed to get Jupiter swap transaction', {
@@ -256,7 +259,7 @@ export class JupiterAdapter {
    */
   async getSwapHistory(userAddress: string, limit: number = 100): Promise<JupiterSwapInfo[]> {
     const cacheKey = `jupiter:history:${userAddress}:${limit}`;
-    
+
     try {
       // Check cache first
       const cached = await redisManager.get<JupiterSwapInfo[]>(cacheKey);
@@ -285,13 +288,16 @@ export class JupiterAdapter {
             swapHistory.push(jupiterSwap);
           }
         } catch (error) {
-          logger.debug('Failed to parse transaction', { signature: sig.signature, error: error.message });
+          logger.debug('Failed to parse transaction', {
+            signature: sig.signature,
+            error: error.message,
+          });
         }
       }
 
       // Cache for 5 minutes
       await redisManager.set(cacheKey, swapHistory, 300);
-      
+
       return swapHistory;
     } catch (error) {
       logger.error('Failed to get Jupiter swap history', {
@@ -313,7 +319,10 @@ export class JupiterAdapter {
   private async parseJupiterSwap(tx: any, userAddress: string): Promise<JupiterSwapInfo | null> {
     try {
       // Check if transaction involves Jupiter program
-      const jupiterPrograms = ['JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4', 'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB'];
+      const jupiterPrograms = [
+        'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',
+        'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB',
+      ];
       const hasJupiterProgram = tx.transaction.message.accountKeys.some((key: any) =>
         jupiterPrograms.includes(key.toString())
       );
@@ -325,7 +334,7 @@ export class JupiterAdapter {
       const postBalances = tx.meta?.postTokenBalances || [];
 
       const changes = this.calculateTokenChanges(preBalances, postBalances, userAddress);
-      
+
       if (changes.length < 2) return null; // Should have at least input and output tokens
 
       const inputChange = changes.find(c => c.amount < 0); // Decreased token (input)
@@ -355,28 +364,33 @@ export class JupiterAdapter {
    */
   private calculateTokenChanges(preBalances: any[], postBalances: any[], userAddress: string) {
     const changes: { mint: string; amount: number }[] = [];
-    
+
     // Create maps for easier comparison
     const preMap = new Map();
     const postMap = new Map();
 
-    preBalances.filter(b => b.owner === userAddress).forEach(balance => {
-      preMap.set(balance.mint, balance.uiTokenAmount.uiAmount || 0);
-    });
+    preBalances
+      .filter(b => b.owner === userAddress)
+      .forEach(balance => {
+        preMap.set(balance.mint, balance.uiTokenAmount.uiAmount || 0);
+      });
 
-    postBalances.filter(b => b.owner === userAddress).forEach(balance => {
-      postMap.set(balance.mint, balance.uiTokenAmount.uiAmount || 0);
-    });
+    postBalances
+      .filter(b => b.owner === userAddress)
+      .forEach(balance => {
+        postMap.set(balance.mint, balance.uiTokenAmount.uiAmount || 0);
+      });
 
     // Calculate changes
     const allMints = new Set([...preMap.keys(), ...postMap.keys()]);
-    
+
     for (const mint of allMints) {
       const preBal = preMap.get(mint) || 0;
       const postBal = postMap.get(mint) || 0;
       const change = postBal - preBal;
-      
-      if (Math.abs(change) > 0.000001) { // Filter out dust
+
+      if (Math.abs(change) > 0.000001) {
+        // Filter out dust
         changes.push({ mint, amount: change });
       }
     }
@@ -395,7 +409,7 @@ export class JupiterAdapter {
     // Fetch from token list
     const tokens = await this.getTokenList();
     const token = tokens.find(t => t.address === mint);
-    
+
     if (token) {
       return {
         mint: token.address,
@@ -424,7 +438,7 @@ export class JupiterAdapter {
   private calculatePriceImpact(inputChange: any, outputChange: any): number {
     // This is a simplified calculation
     // In practice, you'd need token prices to calculate accurate price impact
-    return 0; // TODO: Implement proper price impact calculation
+    return 0; // Price impact calculation requires real-time price feeds
   }
 
   /**
@@ -449,7 +463,7 @@ export class JupiterAdapter {
   async getUserPositions(userAddress: string): Promise<SolanaDeFiPosition[]> {
     try {
       const swapHistory = await this.getSwapHistory(userAddress, 50);
-      
+
       // Jupiter doesn't have "positions" in the traditional sense,
       // but we can create a summary of recent trading activity
       const position: SolanaDeFiPosition = {

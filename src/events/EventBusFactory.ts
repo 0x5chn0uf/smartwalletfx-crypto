@@ -1,7 +1,7 @@
 import { EventBusPort, EventBusConfig } from '@/ports/EventBusPort';
 import { InMemoryEventBusAdapter } from '@/adapters/outbound/event-bus/InMemoryEventBusAdapter';
 import { BullMQEventBusAdapter } from '@/adapters/outbound/event-bus/BullMQEventBusAdapter';
-import { config } from '@/config';
+import type { Config } from '@/config';
 import { logger } from '@/utils/logger';
 
 /**
@@ -15,7 +15,7 @@ export class EventBusFactory {
    * Create an event bus instance based on environment and configuration
    */
   static create(eventBusType?: string, eventBusConfig?: Partial<EventBusConfig>): EventBusPort {
-    const environment = config.nodeEnv;
+    const environment = process.env.NODE_ENV || 'development';
     const busType = eventBusType || process.env.EVENT_BUS_TYPE || 'auto';
 
     // Determine which event bus to use
@@ -51,7 +51,7 @@ export class EventBusFactory {
    */
   static getDefaultConfig(): EventBusConfig {
     return {
-        adapter: 'in-memory'
+      adapter: 'in-memory',
     };
   }
 
@@ -60,7 +60,7 @@ export class EventBusFactory {
    */
   static createWithProductionDefaults(): EventBusPort {
     const productionConfig: EventBusConfig = {
-        adapter: 'bullmq'
+      adapter: 'bullmq',
     };
 
     return EventBusFactory.createBullMQ(productionConfig);
@@ -71,7 +71,7 @@ export class EventBusFactory {
    */
   static createWithDevelopmentDefaults(): EventBusPort {
     const developmentConfig: EventBusConfig = {
-        adapter: 'in-memory'
+      adapter: 'in-memory',
     };
 
     return EventBusFactory.createInMemory(developmentConfig);

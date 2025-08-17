@@ -1,6 +1,6 @@
 /**
  * Unified Chain Configuration
- * 
+ *
  * Single source of truth for blockchain configuration
  * Consolidates disparate config sources as specified in PRD section 6.
  */
@@ -58,11 +58,11 @@ function getRpcUrl(chainName: string, defaultUrl: string): string {
 function isChainEnabled(chainName: string, defaultEnabled: boolean = true): boolean {
   const envKey = `ENABLE_${chainName.toUpperCase()}`;
   const envValue = process.env[envKey];
-  
+
   if (envValue === undefined) {
     return defaultEnabled;
   }
-  
+
   return envValue.toLowerCase() === 'true';
 }
 
@@ -515,13 +515,13 @@ export function isChainSupported(chainId: ChainId): boolean {
  */
 export function getRpcUrlsMapping(): Record<ChainId, string> {
   const mapping: Record<ChainId, string> = {} as Record<ChainId, string>;
-  
+
   Object.values(UNIFIED_CHAIN_CONFIGS).forEach(config => {
     if (config.enabled) {
       mapping[config.id] = config.rpcUrl;
     }
   });
-  
+
   return mapping;
 }
 
@@ -530,27 +530,27 @@ export function getRpcUrlsMapping(): Record<ChainId, string> {
  */
 export function validateChainConfigs(): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
-  
+
   const enabledChains = getEnabledChains();
-  
+
   if (enabledChains.length === 0) {
     errors.push('No chains are enabled');
   }
-  
+
   enabledChains.forEach(chain => {
     if (!chain.rpcUrl || chain.rpcUrl.includes('demo')) {
       errors.push(`Chain ${chain.name} has invalid or demo RPC URL`);
     }
-    
+
     if (chain.rateLimits.requestsPerSecond <= 0) {
       errors.push(`Chain ${chain.name} has invalid rate limits`);
     }
-    
+
     if (!chain.nativeCurrency.symbol) {
       errors.push(`Chain ${chain.name} missing native currency symbol`);
     }
   });
-  
+
   return {
     valid: errors.length === 0,
     errors,
@@ -567,18 +567,18 @@ export function getChainConfigSummary(): {
   byProvider: Record<string, number>;
 } {
   const enabled = getEnabledChains();
-  
+
   const byFeature = {
     defi: enabled.filter(c => c.features.defi).length,
     nft: enabled.filter(c => c.features.nft).length,
     evm: enabled.filter(c => c.features.evm).length,
   };
-  
+
   const byProvider: Record<string, number> = {};
   enabled.forEach(chain => {
     byProvider[chain.providers.primary] = (byProvider[chain.providers.primary] || 0) + 1;
   });
-  
+
   return {
     total: Object.keys(UNIFIED_CHAIN_CONFIGS).length,
     enabled: enabled.length,
