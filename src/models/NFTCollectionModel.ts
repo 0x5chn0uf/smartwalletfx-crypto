@@ -23,13 +23,13 @@ export class NFTCollectionModel {
     data: z.infer<typeof NFTCollectionCreateSchema>
   ): Promise<NFTCollectionWithStats> {
     try {
-      const validatedData = NFTCollectionCreateSchema.parse(data);
+      const validatedData = NFTCollectionCreateSchema.parse(data) as Prisma.NFTCollectionCreateInput;
 
       // Check for existing collection
       const existing = await prisma.nFTCollection.findFirst({
         where: {
-          contractAddress: validatedData.contractAddress.toLowerCase(),
-          chainId: validatedData.chainId,
+          contractAddress: (validatedData.contractAddress as string).toLowerCase(),
+          chainId: validatedData.chainId as string,
         },
       });
 
@@ -44,17 +44,17 @@ export class NFTCollectionModel {
       const collection = await prisma.nFTCollection.upsert({
         where: {
           chainId_contractAddress: {
-            chainId: validatedData.chainId,
-            contractAddress: validatedData.contractAddress.toLowerCase(),
+            chainId: validatedData.chainId as string,
+            contractAddress: (validatedData.contractAddress as string).toLowerCase(),
           },
         },
         create: {
           ...validatedData,
-          contractAddress: validatedData.contractAddress.toLowerCase(),
+          contractAddress: (validatedData.contractAddress as string).toLowerCase(),
         },
         update: {
           ...validatedData,
-          contractAddress: validatedData.contractAddress.toLowerCase(),
+          contractAddress: (validatedData.contractAddress as string).toLowerCase(),
           updatedAt: new Date(),
         },
         include: {
@@ -80,7 +80,7 @@ export class NFTCollectionModel {
         chainId: collection.chainId,
       });
 
-      return collection;
+      return collection as NFTCollectionWithStats;
     } catch (error) {
       if (error instanceof ConflictError) throw error;
 
@@ -354,10 +354,10 @@ export class NFTCollectionModel {
     data: z.infer<typeof NFTCollectionUpdateSchema>
   ): Promise<NFTCollectionWithStats> {
     try {
-      const validatedData = NFTCollectionUpdateSchema.parse(data);
+      const validatedData = NFTCollectionUpdateSchema.parse(data) as Prisma.NFTCollectionUpdateInput;
 
       if (validatedData.contractAddress) {
-        (validatedData as any).contractAddress = validatedData.contractAddress.toLowerCase();
+        (validatedData as any).contractAddress = (validatedData.contractAddress as string).toLowerCase();
       }
 
       const collection = await prisma.nFTCollection.update({
@@ -448,22 +448,22 @@ export class NFTCollectionModel {
       await dbUtils.withRetry(async tx => {
         for (let i = 0; i < collectionsData.length; i++) {
           try {
-            const validatedData = NFTCollectionCreateSchema.parse(collectionsData[i]);
+            const validatedData = NFTCollectionCreateSchema.parse(collectionsData[i]) as Prisma.NFTCollectionCreateInput;
 
             const collection = await tx.nFTCollection.upsert({
               where: {
                 contractAddress_chainId: {
-                  contractAddress: validatedData.contractAddress.toLowerCase(),
-                  chainId: validatedData.chainId,
+                  contractAddress: (validatedData.contractAddress as string).toLowerCase(),
+                  chainId: validatedData.chainId as string,
                 },
               },
               create: {
                 ...validatedData,
-                contractAddress: validatedData.contractAddress.toLowerCase(),
+                contractAddress: (validatedData.contractAddress as string).toLowerCase(),
               },
               update: {
                 ...validatedData,
-                contractAddress: validatedData.contractAddress.toLowerCase(),
+                contractAddress: (validatedData.contractAddress as string).toLowerCase(),
                 updatedAt: new Date(),
               },
               include: {

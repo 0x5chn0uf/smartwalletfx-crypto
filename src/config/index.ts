@@ -249,3 +249,22 @@ export const isDevelopmentEnvironment = (config: Config) => config.server.isDeve
 export const isStagingEnvironment = (config: Config) => config.server.isStaging;
 
 export type Config = Awaited<ReturnType<typeof initializeConfig>>;
+
+// Create a singleton config instance for utilities
+let configInstance: Config | null = null;
+
+export const getConfig = async (): Promise<Config> => {
+  if (!configInstance) {
+    configInstance = await initializeConfig();
+  }
+  return configInstance;
+};
+
+// For backwards compatibility where synchronous access is needed
+// Note: This will be null until getConfig() is called
+export let config: Config | null = null;
+
+// Initialize the config synchronously for utilities
+(async () => {
+  config = await getConfig();
+})();

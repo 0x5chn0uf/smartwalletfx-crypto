@@ -54,7 +54,7 @@ describe('CircuitBreaker', () => {
     });
 
     it('should track successful calls in statistics', async () => {
-      const mockFn = jest.fn().mockResolvedValue('success');
+      const mockFn = vi.fn().mockResolvedValue('success');
       
       await circuitBreaker.execute(mockFn);
       await circuitBreaker.execute(mockFn);
@@ -67,7 +67,7 @@ describe('CircuitBreaker', () => {
     });
 
     it('should handle failed calls and track failures', async () => {
-      const mockFn = jest.fn().mockRejectedValue(new Error('Service unavailable'));
+      const mockFn = vi.fn().mockRejectedValue(new Error('Service unavailable'));
       
       await expect(circuitBreaker.execute(mockFn)).rejects.toThrow('Service unavailable');
       
@@ -99,7 +99,7 @@ describe('CircuitBreaker', () => {
     });
 
     it('should reject calls immediately without executing function', async () => {
-      const mockFn = jest.fn().mockResolvedValue('success');
+      const mockFn = vi.fn().mockResolvedValue('success');
       
       await expect(circuitBreaker.execute(mockFn)).rejects.toThrow('Circuit breaker is OPEN');
       expect(mockFn).not.toHaveBeenCalled();
@@ -124,7 +124,7 @@ describe('CircuitBreaker', () => {
     });
 
     it('should allow limited calls through', async () => {
-      const mockFn = jest.fn().mockResolvedValue('success');
+      const mockFn = vi.fn().mockResolvedValue('success');
       
       const result = await circuitBreaker.execute(mockFn);
       
@@ -133,7 +133,7 @@ describe('CircuitBreaker', () => {
     });
 
     it('should transition back to CLOSED on successful calls', async () => {
-      const mockFn = jest.fn().mockResolvedValue('success');
+      const mockFn = vi.fn().mockResolvedValue('success');
       
       // Execute successful calls up to halfOpenMaxCalls
       await circuitBreaker.execute(mockFn);
@@ -151,7 +151,7 @@ describe('CircuitBreaker', () => {
     });
 
     it('should reject excess calls beyond halfOpenMaxCalls', async () => {
-      const mockFn = jest.fn().mockResolvedValue('success');
+      const mockFn = vi.fn().mockResolvedValue('success');
       
       // Execute max allowed calls
       await circuitBreaker.execute(mockFn);
@@ -263,7 +263,7 @@ describe('CircuitBreakerFactory', () => {
       const breaker2 = CircuitBreakerFactory.getOrCreate('service-2');
       
       // Generate some activity
-      const mockFn = jest.fn().mockResolvedValue('success');
+      const mockFn = vi.fn().mockResolvedValue('success');
       await breaker1.execute(mockFn);
       await breaker2.execute(mockFn);
       
@@ -282,7 +282,7 @@ describe('CircuitBreakerFactory', () => {
       const breaker2 = CircuitBreakerFactory.getOrCreate('service-2');
       
       // Generate activity
-      const mockFn = jest.fn().mockResolvedValue('success');
+      const mockFn = vi.fn().mockResolvedValue('success');
       await breaker1.execute(mockFn);
       await breaker2.execute(mockFn);
       
@@ -299,7 +299,7 @@ describe('CircuitBreakerFactory', () => {
       const breaker2 = CircuitBreakerFactory.getOrCreate('service-2');
       
       // Generate activity
-      const mockFn = jest.fn().mockResolvedValue('success');
+      const mockFn = vi.fn().mockResolvedValue('success');
       await breaker1.execute(mockFn);
       await breaker2.execute(mockFn);
       
@@ -325,7 +325,7 @@ describe('CircuitBreaker Edge Cases', () => {
   });
 
   it('should handle async function that throws synchronously', async () => {
-    const mockFn = jest.fn(() => {
+    const mockFn = vi.fn(() => {
       throw new Error('Sync error');
     });
     
@@ -352,7 +352,7 @@ describe('CircuitBreaker Edge Cases', () => {
 
   it('should handle mixed success/failure patterns', async () => {
     let callCount = 0;
-    const mockFn = jest.fn().mockImplementation(() => {
+    const mockFn = vi.fn().mockImplementation(() => {
       callCount++;
       if (callCount % 2 === 0) {
         throw new Error('Every other call fails');

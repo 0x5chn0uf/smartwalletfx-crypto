@@ -1,6 +1,14 @@
 import pino from 'pino';
 import { config } from '@/config';
 
+// Import getCurrentCorrelation - will be available after correlation middleware is integrated
+let getCurrentCorrelation: (() => any) | undefined;
+
+// Lazy load to avoid circular dependencies
+export const setCorrelationGetter = (getter: () => any) => {
+  getCurrentCorrelation = getter;
+};
+
 // Create logger instance with optimized configuration
 export const logger = pino({
   level: config.logging.level,
@@ -68,7 +76,7 @@ export const logPerformance = (
   );
 };
 
-// API call logging (for external services)
+// API call logging (for external services) with correlation support
 export const logApiCall = (
   provider: string,
   endpoint: string,
@@ -76,6 +84,8 @@ export const logApiCall = (
   status: 'success' | 'error',
   context?: Record<string, any>
 ) => {
+  // Try to get correlation context from async local storage
+  const correlationContext = getCurrentCorrelation?.();
   const logLevel = status === 'error' ? 'error' : 'info';
 
   logger[logLevel](
@@ -84,9 +94,52 @@ export const logApiCall = (
       endpoint,
       duration_ms: duration,
       status,
+      correlationId: correlationContext?.correlationId,
+      requestId: correlationContext?.requestId,
       ...context,
     },
     `API Call: ${provider}${endpoint} - ${status} in ${duration}ms`
+  );
+};
+
+// Enhanced error logging with correlation
+export const logCorrelatedError = (
+  error: Error,
+  correlationId?: string,
+  context?: Record<string, any>
+) => {
+  const correlationContext = getCurrentCorrelation?.();
+  
+  logger.error({
+    err: {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    },
+    correlationId: correlationId || correlationContext?.correlationId,
+    requestId: correlationContext?.requestId,
+    ...context,
+  });
+};
+
+// Performance logging with correlation
+export const logCorrelatedPerformance = (
+  operation: string,
+  duration: number,
+  correlationId?: string,
+  context?: Record<string, any>
+) => {
+  const correlationContext = getCurrentCorrelation?.();
+  
+  logger.info(
+    {
+      operation,
+      duration_ms: duration,
+      correlationId: correlationId || correlationContext?.correlationId,
+      requestId: correlationContext?.requestId,
+      ...context,
+    },
+    `Performance: ${operation} completed in ${duration}ms`
   );
 };
 

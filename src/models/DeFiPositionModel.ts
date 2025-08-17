@@ -23,12 +23,10 @@ export class DeFiPositionModel {
     data: z.infer<typeof DeFiPositionCreateSchema>
   ): Promise<DeFiPositionWithRelations> {
     try {
-      const validatedData = DeFiPositionCreateSchema.parse(data);
+      const validatedData = DeFiPositionCreateSchema.parse(data) as Prisma.DeFiPositionCreateInput;
 
       const position = await prisma.deFiPosition.create({
-        data: {
-          ...validatedData,
-        },
+        data: validatedData,
         include: {
           suppliedTokens: {
             include: {
@@ -78,7 +76,7 @@ export class DeFiPositionModel {
         type: position.type,
       });
 
-      return position;
+      return position as DeFiPositionWithRelations;
     } catch (error) {
       logger.error('Failed to create DeFi position', { data, error });
       throw new DatabaseError('Failed to create DeFi position', 'create', 'defi_positions', error);
@@ -391,7 +389,7 @@ export class DeFiPositionModel {
     data: z.infer<typeof DeFiPositionUpdateSchema>
   ): Promise<DeFiPositionWithRelations> {
     try {
-      const validatedData = DeFiPositionUpdateSchema.parse(data);
+      const validatedData = DeFiPositionUpdateSchema.parse(data) as Prisma.DeFiPositionUpdateInput;
 
       const position = await prisma.deFiPosition.update({
         where: { id },
@@ -446,7 +444,7 @@ export class DeFiPositionModel {
         updatedFields: Object.keys(validatedData),
       });
 
-      return position;
+      return position as DeFiPositionWithRelations;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundError('DeFiPosition', id);

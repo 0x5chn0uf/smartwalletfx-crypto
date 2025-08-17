@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { ethers } from 'ethers';
-import { logger } from '@/utils/logger';
+import { logger, logCorrelatedError, logCorrelatedPerformance } from '@/utils/logger';
 import { redisManager } from '@/utils/redis';
 import { ChainId } from '@/types/blockchain';
 import {
@@ -178,7 +178,15 @@ export class AaveV3Adapter implements ProtocolAdapter {
       this.health.issues = [error instanceof Error ? error.message : 'Unknown error'];
       this.health.lastCheckedAt = new Date();
       
-      logger.warn('Aave V3 adapter health check failed', { error });
+      logCorrelatedError(
+        error instanceof Error ? error : new Error('Unknown health check error'),
+        undefined,
+        { 
+          adapter: 'AaveV3Adapter',
+          operation: 'healthCheck',
+          chain: testChain 
+        }
+      );
       return false;
     }
   }
@@ -196,11 +204,16 @@ export class AaveV3Adapter implements ProtocolAdapter {
         const chainPositions = await this.getPositionsForChain(address, chain);
         positions.push(...chainPositions);
       } catch (error) {
-        logger.error(`Failed to get Aave V3 positions for chain ${chain}`, {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          address,
-          chainId: chain,
-        });
+        logCorrelatedError(
+          error instanceof Error ? error : new Error('Unknown positions error'),
+          undefined,
+          {
+            adapter: 'AaveV3Adapter',
+            operation: 'getPositions',
+            address,
+            chainId: chain,
+          }
+        );
       }
     }
 

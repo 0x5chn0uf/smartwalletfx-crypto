@@ -22,14 +22,14 @@ export class NFTTokenModel {
    */
   static async create(data: z.infer<typeof NFTTokenCreateSchema>): Promise<NFTTokenWithRelations> {
     try {
-      const validatedData = NFTTokenCreateSchema.parse(data);
+      const validatedData = NFTTokenCreateSchema.parse(data) as Prisma.NFTTokenCreateInput;
 
       // Check for existing token
       const existing = await prisma.nFTToken.findFirst({
         where: {
-          contractAddress: validatedData.contractAddress.toLowerCase(),
-          tokenId: validatedData.tokenId,
-          chainId: validatedData.chainId,
+          contractAddress: (validatedData.contractAddress as string).toLowerCase(),
+          tokenId: validatedData.tokenId as string,
+          chainId: validatedData.chainId as string,
         },
       });
 
@@ -44,20 +44,20 @@ export class NFTTokenModel {
       const nftToken = await prisma.nFTToken.upsert({
         where: {
           chainId_contractAddress_tokenId: {
-            chainId: validatedData.chainId,
-            contractAddress: validatedData.contractAddress.toLowerCase(),
-            tokenId: validatedData.tokenId,
+            chainId: validatedData.chainId as string,
+            contractAddress: (validatedData.contractAddress as string).toLowerCase(),
+            tokenId: validatedData.tokenId as string,
           },
         },
         create: {
           ...validatedData,
-          contractAddress: validatedData.contractAddress.toLowerCase(),
-          owner: validatedData.owner.toLowerCase(),
+          contractAddress: (validatedData.contractAddress as string).toLowerCase(),
+          owner: (validatedData.owner as string).toLowerCase(),
         },
         update: {
           ...validatedData,
-          contractAddress: validatedData.contractAddress.toLowerCase(),
-          owner: validatedData.owner.toLowerCase(),
+          contractAddress: (validatedData.contractAddress as string).toLowerCase(),
+          owner: (validatedData.owner as string).toLowerCase(),
           updatedAt: new Date(),
         },
         include: {

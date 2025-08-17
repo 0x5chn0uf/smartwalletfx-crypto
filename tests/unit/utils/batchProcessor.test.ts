@@ -14,10 +14,10 @@ import { CircuitBreakerFactory } from '../../../src/utils/circuitBreaker';
 
 describe('BatchProcessor', () => {
   let batchProcessor: BatchProcessor<string, string>;
-  let mockProcessor: jest.Mock;
+  let mockProcessor: any;
 
   beforeEach(() => {
-    mockProcessor = jest.fn();
+    mockProcessor = vi.fn();
     
     const config: BatchConfig = {
       maxConcurrency: 3,

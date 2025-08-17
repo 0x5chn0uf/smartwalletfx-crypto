@@ -15,6 +15,8 @@ import { errorHandler } from './middleware/errorHandler';
 import { costTrackingMiddleware } from './middleware/costTrackingMiddleware';
 import { apiKeyAuth } from './middleware/auth';
 import { createRedisRateLimiter } from './middleware/redisRateLimiter';
+import { enhancedCorrelationMiddleware, getCurrentCorrelation } from './middleware/correlationMiddleware';
+import { setCorrelationGetter } from './utils/logger';
 
 // Import route handlers
 import { createHealthRoutes } from './routes/healthRouteFactory';
@@ -31,10 +33,19 @@ export default (config: any) => {
   // Trust proxy for deployments behind load balancers
   app.set('trust proxy', 1);
 
-  // Request ID middleware (must be first)
+  // Initialize correlation tracking
+  setCorrelationGetter(getCurrentCorrelation);
+
+  // Enhanced correlation middleware (must be first after trust proxy)
+  app.use(enhancedCorrelationMiddleware);
+
+  // Request ID middleware - now enhanced with correlation
   app.use((req: Request, res: Response, next: NextFunction) => {
-    req.requestId = (req.headers['x-request-id'] as string) || uuidv4();
-    res.setHeader('X-Request-ID', req.requestId);
+    // Correlation middleware already sets these, but ensure backwards compatibility
+    if (!req.requestId) {
+      req.requestId = (req.headers['x-request-id'] as string) || uuidv4();
+      res.setHeader('X-Request-ID', req.requestId);
+    }
     next();
   });
 
