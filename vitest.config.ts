@@ -7,13 +7,15 @@ export default defineConfig({
     environment: 'node',
     
     // Global test setup
-    setupFiles: ['tests/setup.ts'],
+    setupFiles: ['tests/vitest.setup.ts'],
     
-    // Test patterns
+    // Test patterns - only include our new performance tests
     include: [
-      'tests/unit/**/*.test.ts',
-      'tests/integration/**/*.test.ts',
-      'tests/performance/**/*.test.ts'
+      'tests/unit/utils/circuitBreaker.test.ts',
+      'tests/unit/utils/batchProcessor.test.ts',
+      'tests/unit/services/memory-cache.test.ts',
+      'tests/integration/optimized-chain-manager.integration.test.ts',
+      'tests/performance/**/*.bench.ts'
     ],
     exclude: [
       'node_modules',

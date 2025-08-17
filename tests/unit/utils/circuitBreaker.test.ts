@@ -10,6 +10,7 @@
  */
 
 import { CircuitBreaker, CircuitBreakerFactory, CircuitState } from '../../../src/utils/circuitBreaker';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 describe('CircuitBreaker', () => {
   let circuitBreaker: CircuitBreaker;
@@ -43,7 +44,7 @@ describe('CircuitBreaker', () => {
 
   describe('CLOSED State Behavior', () => {
     it('should execute successful calls normally', async () => {
-      const mockFn = jest.fn().mockResolvedValue('success');
+      const mockFn = vi.fn().mockResolvedValue('success');
       
       const result = await circuitBreaker.execute(mockFn);
       
