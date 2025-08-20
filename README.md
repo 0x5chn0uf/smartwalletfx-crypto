@@ -1,12 +1,12 @@
 # SmartWalletFX Crypto Data Service
 
-> **Phase 3 Production Release** - Enterprise-grade Node.js microservice for multi-chain crypto data retrieval, DeFi position tracking, and portfolio aggregation with advanced security, performance optimization, and comprehensive monitoring.
+> Enterprise-grade Node.js microservice for multi-chain crypto data retrieval, DeFi position tracking, and portfolio aggregation with advanced security, performance optimization, and comprehensive monitoring.
 
 ## 🎯 Overview
 
-The SmartWalletFX Crypto Data Service is a production-ready microservice that seamlessly integrates with the existing Python FastAPI backend. **Phase 3** delivers enterprise-grade enhancements including security hardening, performance optimization, and advanced monitoring capabilities. Built with hexagonal architecture, dependency injection, and comprehensive observability, it provides cost-efficient, high-performance crypto data retrieval across multiple blockchain networks.
+The SmartWalletFX Crypto Data Service is a production-ready microservice that seamlessly integrates with existing backend systems. Built with hexagonal architecture, dependency injection, and comprehensive observability, it provides cost-efficient, high-performance crypto data retrieval across multiple blockchain networks.
 
-## 🚀 Phase 3 Achievements
+## 🚀 Enterprise Features
 
 ### Security Enhancements
 - ✅ **Input Validation**: Comprehensive Joi schema validation
@@ -50,7 +50,7 @@ The SmartWalletFX Crypto Data Service is a production-ready microservice that se
 - **Factory Pattern Routes**: Type-safe route generation with comprehensive validation
 - **Multi-Provider Abstraction**: Dynamic switching between Alchemy, Moralis, Helius, QuickNode
 
-### Production Features (Phase 3)
+### Production-Ready Architecture
 - **Enterprise Observability**: 15+ Prometheus metrics, structured logging, comprehensive cost tracking
 - **Intelligent 3-Level Caching**: L1 (Memory) + L2 (Redis) + L3 (CDN) with ML-powered predictive warming
 - **Advanced Cost Optimization**: 42% reduction through intelligent batching, provider rotation, and request deduplication
@@ -101,11 +101,27 @@ npm start
 ### Docker Development
 
 ```bash
-# Start all services
-docker-compose up
+# Start all services (recommended)
+docker-compose up -d
 
-# Start only the crypto service
-docker-compose up crypto-data-service
+# View service logs
+docker-compose logs -f crypto-data-service
+
+# Start only specific services
+docker-compose up crypto-data-service postgres redis
+```
+
+### Production Deployment
+
+```bash
+# Build production image
+docker build -t crypto-data-service:latest .
+
+# Deploy with Kubernetes
+kubectl apply -f k8s/
+
+# Or deploy with Docker Swarm
+docker stack deploy -c docker-compose.prod.yml crypto
 ```
 
 ## 📊 Architecture
@@ -176,57 +192,85 @@ async def get_enhanced_portfolio(address: str):
     return merge_portfolio_data(crypto_data, user_data)
 ```
 
-## 📄 Phase 3 Documentation
-
-### Production Deployment
-- **[Phase 3 Deployment Guide](docs/production/phase3-deployment-guide.md)** - Complete step-by-step production deployment
-- **[Configuration Templates](docs/production/phase3-config-templates.md)** - Production-ready configuration files
-- **[Operations Playbook](docs/operations/phase3-operations-playbook.md)** - Monitoring, troubleshooting, and maintenance
-
-### Performance & Optimization
-- **[Performance Tuning Guide](docs/performance/phase3-tuning-guide.md)** - Optimization parameters and recommendations
-- **[Architecture Decisions](docs/architecture/adr-002-phase3-decisions.md)** - Phase 3 architectural decisions and trade-offs
+## 📚 Documentation & Resources
 
 ### API Documentation
-- **[OpenAPI Specification](docs/api/openapi-spec.yaml)** - Complete API documentation with Phase 3 enhancements
-- **[Usage Examples](docs/api/usage-examples.md)** - Comprehensive integration examples and best practices
+- **OpenAPI Specification**: Available at `/api/docs` when running
+- **Postman Collection**: `docs/api/postman-collection.json`
+- **Integration Examples**: `docs/api/usage-examples.md`
 
-### Security & Compliance
-- **[Security Audit Report](docs/SECURITY_AUDIT_REPORT.md)** - Phase 2 security audit findings and Phase 3 fixes
-- **[Disaster Recovery](docs/operations/disaster-recovery.md)** - Recovery procedures and runbooks
+### Deployment & Operations
+- **Production Deployment**: Complete Docker and Kubernetes manifests included
+- **Configuration Management**: Environment-based configuration with validation
+- **Monitoring Setup**: Prometheus metrics and Grafana dashboards
+- **Health Checks**: Kubernetes-ready health and readiness probes
+
+### Development Resources
+- **Architecture Documentation**: Clean architecture patterns and design decisions
+- **Testing Guide**: Unit, integration, and E2E testing strategies
+- **Performance Tuning**: Optimization guidelines and benchmarking tools
+- **Security Guidelines**: Best practices for secure deployment and operation
 
 ## 🏗️ Project Structure
 
 ```
 src/
-├── config/          # Environment and app configuration
-├── routes/          # API routes (Express routers)
-├── services/        # Business logic and external integrations
-├── middleware/      # Express middleware (auth, logging, etc.)
-├── models/          # Database models and schemas
-├── utils/           # Shared utilities (logger, cache, etc.)
-├── types/           # TypeScript type definitions
-├── app.ts           # Express app configuration
-└── index.ts         # Application bootstrap and lifecycle
+├── app/                    # Application core (hexagonal architecture)
+│   ├── modules/           # Runtime orchestration modules
+│   ├── usecases/          # Business use cases
+│   ├── ports/             # Interface definitions
+│   └── events/            # Domain events
+├── adapters/              # External service adapters
+│   └── outbound/          # External API adapters
+├── config/                # Configuration management
+│   ├── modules/           # Modular configuration
+│   └── env/               # Environment validation
+├── routes/                # API route factories
+│   ├── schema/            # Request/response schemas
+│   └── interfaces/        # Route interface definitions  
+├── services/              # Core business services
+│   ├── defi/              # DeFi protocol adapters
+│   ├── nft/               # NFT service implementations
+│   ├── pricing/           # Price aggregation services
+│   └── providers/         # Blockchain provider adapters
+├── middleware/            # Express middleware stack
+├── models/                # Database models (Prisma)
+│   └── schema/            # Schema definitions
+├── utils/                 # Shared utilities
+│   ├── batch/             # Batch processing utilities
+│   └── concurrency/       # Concurrency control
+├── types/                 # TypeScript definitions
+├── app.ts                 # Express application factory
+└── index.ts               # Application entry point
 
 tests/
-├── unit/            # Unit tests
-├── integration/     # Integration tests
-└── e2e/             # End-to-end tests
+├── unit/                  # Unit tests by component
+├── integration/           # Service integration tests
+├── e2e/                   # End-to-end API tests
+├── performance/           # Performance benchmarks
+├── security/              # Security validation tests
+└── fixtures/              # Test data fixtures
 
-docker/              # Docker configurations
-k8s/                 # Kubernetes manifests
-monitoring/          # Prometheus & Grafana configs
+prisma/                    # Database layer
+├── schema.prisma          # Combined Prisma schema
+└── schemas/               # Modular schema definitions
+
+docker/                    # Container configurations
+k8s/                       # Kubernetes deployment manifests
+monitoring/                # Observability stack
+scripts/                   # Operational and utility scripts
 ```
 
-## 📈 Performance Targets
+## 📈 Performance Metrics
 
-| Metric | Current | Target | Improvement |
-|--------|---------|--------|-------------|
-| Portfolio Load Time | 8-12s | 2-3s | 75% faster |
-| API Response Time | 500ms | 200ms | 60% faster |
-| Cache Hit Rate | 45% | 85% | 89% improvement |
-| Concurrent Users | 200 | 1000+ | 5x capacity |
+| Metric | Target | Status |
+|--------|--------|---------|
+| API Response Time (p95) | <150ms | 🔧 In Development |
+| Cache Hit Rate | 90% | 🔧 In Development |
+| Concurrent Users | 500+ | 🔧 In Development |
+| Uptime | 99.5% | 🔧 In Development |
+| Cost per 1K requests | <$0.25 | 🔧 In Development |
+| Memory Usage | <1GB | 🔧 In Development |
 
 ## 🧪 Testing
 
@@ -345,11 +389,18 @@ curl http://localhost:3000/api/usage
 npm run rate-limits:reset
 ```
 
-## 📚 API Documentation
+## 📚 Additional Resources
 
-- **OpenAPI Spec**: Available at `/api/docs`
-- **Postman Collection**: `docs/api/postman-collection.json`
-- **Integration Guide**: `docs/integration-guide.md`
+### Community & Support
+- **GitHub Issues**: Bug reports and feature requests
+- **Discord**: Community discussions and real-time support
+- **Documentation**: Comprehensive guides and API references
+
+### Monitoring & Observability
+- **Grafana Dashboards**: Real-time performance and cost monitoring
+- **Prometheus Metrics**: 15+ application and business metrics
+- **Distributed Tracing**: Request lifecycle visibility with correlation IDs
+- **Cost Analytics**: Provider usage patterns and optimization insights
 
 ## 🤝 Contributing
 
@@ -367,6 +418,39 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - **Documentation**: [docs.smartwalletfx.com](https://docs.smartwalletfx.com)
 - **Issues**: Create a GitHub issue
 - **Discord**: Join our development community
+
+---
+
+---
+
+## 🌟 Technical Specifications
+
+### Blockchain Networks Supported
+- **EVM Chains**: Ethereum, Polygon, Arbitrum, Optimism, Base
+- **Non-EVM**: Solana (with native SPL token support)
+- **Extensible**: Plugin architecture for additional chains
+
+### DeFi Protocol Coverage
+- **Lending**: Aave V3, Compound V3
+- **DEXs**: Uniswap V3, Curve Finance 
+- **Yield Farming**: Yearn Finance vaults
+- **Staking**: Lido (Ethereum), Marinade (Solana)
+- **Aggregators**: Jupiter (Solana), Orca (Solana)
+
+### Data Sources & Providers
+- **Primary**: Alchemy (EVM chains)
+- **Solana**: Helius RPC
+- **Backup**: Moralis, QuickNode, Ankr
+- **Smart Fallback**: Automatic provider switching on rate limits or failures
+
+### Technical Stack
+- **Runtime**: Node.js 20+ with TypeScript 5+
+- **Framework**: Express.js with dependency injection
+- **Database**: PostgreSQL with Prisma ORM (modular schemas)
+- **Cache**: Redis with intelligent layering
+- **Queue**: BullMQ for background processing
+- **Monitoring**: Prometheus + Grafana
+- **Container**: Docker with multi-stage builds
 
 ---
 
