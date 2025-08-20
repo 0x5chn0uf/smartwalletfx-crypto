@@ -22,14 +22,14 @@ export class TransactionModel {
     data: typeof TransactionCreateSchema._input
   ): Promise<TransactionWithTransfers> {
     try {
-      const validatedData = TransactionCreateSchema.parse(data);
+      const validatedData = TransactionCreateSchema.parse(data) as Prisma.TransactionCreateInput;
 
       // Check for existing transaction
       const existing = await prisma.transaction.findUnique({
         where: {
           hash_chainId: {
-            hash: validatedData.hash,
-            chainId: validatedData.chainId,
+            hash: validatedData.hash as string,
+            chainId: validatedData.chainId as string,
           },
         },
       });
@@ -45,20 +45,20 @@ export class TransactionModel {
       const transaction = await prisma.transaction.upsert({
         where: {
           hash_chainId: {
-            hash: validatedData.hash,
-            chainId: validatedData.chainId,
+            hash: validatedData.hash as string,
+            chainId: validatedData.chainId as string,
           },
         },
         create: {
           ...validatedData,
-          from: validatedData.from.toLowerCase(),
-          to: validatedData.to?.toLowerCase(),
+          from: (validatedData.from as string).toLowerCase(),
+          to: (validatedData.to as string)?.toLowerCase(),
           isDeleted: false,
         },
         update: {
           ...validatedData,
-          from: validatedData.from.toLowerCase(),
-          to: validatedData.to?.toLowerCase(),
+          from: (validatedData.from as string).toLowerCase(),
+          to: (validatedData.to as string)?.toLowerCase(),
           isDeleted: false,
           updatedAt: new Date(),
         },
@@ -79,7 +79,7 @@ export class TransactionModel {
         status: transaction.status,
       });
 
-      return transaction;
+      return transaction as TransactionWithTransfers;
     } catch (error) {
       if (error instanceof ConflictError) throw error;
 

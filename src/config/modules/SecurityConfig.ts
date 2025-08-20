@@ -40,7 +40,7 @@ export class SecurityConfig extends BaseConfigModule<SecuritySettings> {
         apiKeyRateLimit: env.API_KEY_RATE_LIMIT || 100,
       };
     }
-    return this.config;
+    return this.config!;
   }
 
   protected validateConfig(config: SecuritySettings, errors: string[], warnings: string[]): void {
